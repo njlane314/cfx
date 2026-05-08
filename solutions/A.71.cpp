@@ -1,17 +1,29 @@
-#include "cp.hpp"
+#include <bits/stdc++.h>
+
+using namespace std;
+
+using ll = long long;
+using ull = unsigned long long;
+using ld = long double;
+
+using pii = pair<int, int>;
+using pll = pair<ll, ll>;
+
+#define all(x) begin(x), end(x)
+#define rall(x) rbegin(x), rend(x)
 
 void solve() {
     int n;
-    scan(n);
+    cin >> n;
 
     for (int i = 0; i < n; i++) {
         string word;
-        scan(word);
+        cin >> word;
 
         if (word.size() <= 10) {
-            println(word);
+            cout << word << '\n';
         } else {
-            println(word.front() + to_string(word.size() - 2) + word.back());
+            cout << word.front() << word.size() - 2 << word.back() << '\n';
         }
     }
 }

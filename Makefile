@@ -2,6 +2,7 @@ SOURCES := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f 2>/dev/null 
 LATEST_SOURCE := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f -exec ls -t {} + 2>/dev/null | sed -n '1p')
 GOAL := $(or $(firstword $(MAKECMDGOALS)),run)
 ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+ABSORB_ARGS := $(filter run rerun bundle new,$(GOAL))
 .DEFAULT_GOAL := run
 ifneq ($(strip $(LATEST_SOURCE)),)
 SRC ?= $(LATEST_SOURCE)
@@ -10,7 +11,17 @@ SRC ?=
 endif
 RUN_ARGS := $(if $(strip $(ARGS)),$(ARGS),$(SRC))
 
-.PHONY: all run run-all bundle new install clean check-run-arg check-new-arg $(ARGS)
+.PHONY: run rerun bundle new install clean check-run-arg check-new-arg
+
+ifneq ($(strip $(ABSORB_ARGS)),)
+.PHONY: $(ARGS)
+$(ARGS):
+	@:
+else
+.PHONY: all
+all:
+	./bin/run all
+endif
 
 check-run-arg:
 	@test -n "$(RUN_ARGS)" || { \
@@ -29,8 +40,8 @@ check-new-arg:
 run: check-run-arg
 	./bin/run $(RUN_ARGS)
 
-all:
-	./bin/run all
+rerun: check-run-arg
+	./bin/rerun $(RUN_ARGS)
 
 bundle: check-run-arg
 	@./bin/bundle $(RUN_ARGS)
@@ -40,7 +51,7 @@ new: check-new-arg
 
 install:
 	mkdir -p $$HOME/.local/bin
-	@set -e; for cmd in bundle run new; do \
+	@set -e; for cmd in bundle run rerun new; do \
 		src="$(CURDIR)/bin/$$cmd"; \
 		dst="$$HOME/.local/bin/$$cmd"; \
 		target=$$(readlink "$$dst" 2>/dev/null || true); \
@@ -57,6 +68,3 @@ install:
 
 clean:
 	rm -rf .build
-
-$(ARGS):
-	@:

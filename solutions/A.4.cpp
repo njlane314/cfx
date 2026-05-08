@@ -1,9 +1,21 @@
-#include "cp.hpp"
+#include <bits/stdc++.h>
+
+using namespace std;
+
+using ll = long long;
+using ull = unsigned long long;
+using ld = long double;
+
+using pii = pair<int, int>;
+using pll = pair<ll, ll>;
+
+#define all(x) begin(x), end(x)
+#define rall(x) rbegin(x), rend(x)
 
 void solve() {
     int w;
-    scan(w);
-    yesno(w > 2 && w % 2 == 0);
+    cin >> w;
+    cout << (w > 2 && w % 2 == 0 ? "YES" : "NO") << '\n';
 }
 
 int main() {
