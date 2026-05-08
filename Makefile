@@ -8,7 +8,6 @@ ARGREST := $(wordlist 2,$(words $(ARGS)),$(ARGS))
 P ?= $(ARG1)
 ID ?= $(P)
 PARTS ?= A-H
-PROBLEM ?=
 ifneq ($(strip $(LATEST_SOURCE)),)
 SRC ?= $(LATEST_SOURCE)
 else
@@ -16,7 +15,7 @@ SRC ?=
 endif
 RUN_ARG := $(if $(strip $(ID)),$(ID),$(SRC))
 
-.PHONY: all run run-all bundle new submit install clean check-arg $(ARGS)
+.PHONY: all run run-all bundle new install clean check-arg $(ARGS)
 
 check-arg:
 	@test -n "$(RUN_ARG)" || { \
@@ -33,10 +32,7 @@ all:
 	./bin/run all
 
 bundle: check-arg
-	@mkdir -p submissions
-	@out_id=$$(printf '%s\n' "$(RUN_ARG)" | sed -E -e 's|.*/([^/]+)\.cpp$$|\1|' -e 's|^([0-9]+)([A-Za-z][A-Za-z0-9]*)$$|\2.\1|'); \
-	./bin/bundle "$(RUN_ARG)" > "submissions/$$out_id.cpp"; \
-	echo "submissions/$$out_id.cpp"
+	@./bin/bundle "$(RUN_ARG)"
 
 new:
 	@test -n "$(strip $(C)$(P))" || { \
@@ -54,12 +50,9 @@ new:
 		./bin/new "$(P)" $(ARGREST); \
 	fi
 
-submit: check-arg
-	./bin/submit $(RUN_ARG) $(PROBLEM)
-
 install:
 	mkdir -p $$HOME/.local/bin
-	@set -e; for cmd in bundle run new submit; do \
+	@set -e; for cmd in bundle run new; do \
 		src="$(CURDIR)/bin/$$cmd"; \
 		dst="$$HOME/.local/bin/$$cmd"; \
 		target=$$(readlink "$$dst" 2>/dev/null || true); \
@@ -72,7 +65,7 @@ install:
 	@echo 'ensure $$HOME/.local/bin is in PATH'
 
 clean:
-	rm -rf .build submissions
+	rm -rf .build
 
 $(ARGS):
 	@:

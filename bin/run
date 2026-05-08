@@ -79,9 +79,7 @@ SRC_DIR=$(dirname -- "$SRC")
 BUILD="$ROOT/.build/$ID"
 mkdir -p "$BUILD"
 
-OUT_CPP="$BUILD/submit.cpp"
 BIN="$BUILD/main"
-"$ROOT/bin/bundle" "$SRC" > "$OUT_CPP"
 
 CXX=${CXX:-g++}
 STD=${STD:-gnu++20}
@@ -106,7 +104,7 @@ ensure_cxx_headers() {
 
 ensure_cxx_headers
 # shellcheck disable=SC2086
-$CXX -std="$STD" $CXXFLAGS -I"$ROOT/include" "$OUT_CPP" -o "$BIN"
+"$ROOT/bin/bundle" "$SRC" | $CXX -std="$STD" $CXXFLAGS -I"$ROOT/include" -x c++ - -o "$BIN"
 
 TEST_DIR="$ROOT/tests/$ID"
 if [ ! -d "$TEST_DIR" ] && [ -d "$SRC_DIR/tests" ]; then
