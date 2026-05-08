@@ -7,11 +7,11 @@ Files are named `solutions/A.71.cpp`; tests live in `tests/A.71/`.
 ## Make
 
 ```sh
-make new 71A
-make run 71A
-make bundle 71A
+make new A 71
+make run A 71
+make bundle A 71
 make all
 make clean
 ```
 
-`make bundle 71A` writes the single-file source to stdout.
+`make bundle A 71` writes the single-file source to stdout.

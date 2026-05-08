@@ -2,53 +2,41 @@ SOURCES := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f 2>/dev/null 
 LATEST_SOURCE := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f -exec ls -t {} + 2>/dev/null | sed -n '1p')
 GOAL := $(or $(firstword $(MAKECMDGOALS)),run)
 ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-ARG1 := $(firstword $(ARGS))
-ARGREST := $(wordlist 2,$(words $(ARGS)),$(ARGS))
 .DEFAULT_GOAL := run
-P ?= $(ARG1)
-ID ?= $(P)
-PARTS ?= A-H
 ifneq ($(strip $(LATEST_SOURCE)),)
 SRC ?= $(LATEST_SOURCE)
 else
 SRC ?=
 endif
-RUN_ARG := $(if $(strip $(ID)),$(ID),$(SRC))
+RUN_ARGS := $(if $(strip $(ARGS)),$(ARGS),$(SRC))
 
-.PHONY: all run run-all bundle new install clean check-arg $(ARGS)
+.PHONY: all run run-all bundle new install clean check-run-arg check-new-arg $(ARGS)
 
-check-arg:
-	@test -n "$(RUN_ARG)" || { \
-		echo 'usage: make $(GOAL) 1985A'; \
-		echo '   or: make $(GOAL) P=1985A'; \
-		echo 'create problems with: make new 1985 A-H'; \
+check-run-arg:
+	@test -n "$(RUN_ARGS)" || { \
+		echo 'usage: make $(GOAL) A 1985'; \
+		echo 'create problems with: make new A 1985'; \
 		exit 2; \
 	}
 
-run: check-arg
-	./bin/run $(RUN_ARG)
+check-new-arg:
+	@test -n "$(strip $(ARGS))" || { \
+		echo 'usage: make new A 71'; \
+		echo '   or: make new A-H 1985'; \
+		exit 2; \
+	}
+
+run: check-run-arg
+	./bin/run $(RUN_ARGS)
 
 all:
 	./bin/run all
 
-bundle: check-arg
-	@./bin/bundle "$(RUN_ARG)"
+bundle: check-run-arg
+	@./bin/bundle $(RUN_ARGS)
 
-new:
-	@test -n "$(strip $(C)$(P))" || { \
-		echo 'usage: make new 71A'; \
-		echo '   or: make new 1985 A-H'; \
-		exit 2; \
-	}
-	@if [ -n "$(strip $(C))" ]; then \
-		if [ -n "$(strip $(P))" ]; then \
-			./bin/new "$(C)" "$(P)"; \
-		else \
-			./bin/new "$(C)"; \
-		fi; \
-	else \
-		./bin/new "$(P)" $(ARGREST); \
-	fi
+new: check-new-arg
+	./bin/new $(ARGS)
 
 install:
 	mkdir -p $$HOME/.local/bin
@@ -62,6 +50,9 @@ install:
 		fi; \
 		ln -sf "$$src" "$$dst"; \
 	done
+	@if [ "$$(readlink "$$HOME/.local/bin/submit" 2>/dev/null || true)" = "$(CURDIR)/bin/submit" ]; then \
+		rm -f "$$HOME/.local/bin/submit"; \
+	fi
 	@echo 'ensure $$HOME/.local/bin is in PATH'
 
 clean:

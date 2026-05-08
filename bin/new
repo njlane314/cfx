@@ -1,32 +1,20 @@
 #!/bin/sh
 set -eu
 
-if [ $# -lt 1 ]; then
-    echo "usage: new PROBLEM_ID" >&2
-    echo "   or: new CONTEST [A-H|A B C ...]" >&2
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ $# -lt 2 ]; then
+    echo "usage: new A 71" >&2
+    echo "   or: new A-H 1985" >&2
     exit 2
 fi
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+SPECS=
+while [ $# -gt 1 ]; do
+    SPECS="$SPECS $1"
+    shift
+done
 CONTEST=$1
-shift || true
-
-store_id() {
-    printf '%s\n' "$1" | sed -E 's/^([0-9]+)([A-Za-z][A-Za-z0-9]*)$/\2.\1/'
-}
-
-if [ $# -eq 0 ]; then
-    case "$CONTEST" in
-        *[!0-9]*)
-            SPECS=
-            ;;
-        *)
-            SPECS=A-H
-            ;;
-    esac
-else
-    SPECS=$*
-fi
 
 expand_specs() {
     printf '%s\n' "$@" | tr ' ' '\n' | awk '
@@ -43,11 +31,7 @@ expand_specs() {
     '
 }
 
-if [ -z "$SPECS" ]; then
-    IDS=$(store_id "$CONTEST")
-else
-    IDS=$(for P in $(expand_specs $SPECS); do store_id "$CONTEST$P"; done)
-fi
+IDS=$(for P in $(expand_specs $SPECS); do printf '%s.%s\n' "$P" "$CONTEST"; done)
 
 for ID in $IDS; do
     SRC="$ROOT/solutions/$ID.cpp"
