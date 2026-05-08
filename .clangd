@@ -1,0 +1,15 @@
+CompileFlags:
+  Add:
+    - -std=gnu++20
+    - -Iinclude
+    - -DLOCAL
+    - -isystem
+    - /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+  ClangTidy:
+    Remove:
+      - "*"
+
