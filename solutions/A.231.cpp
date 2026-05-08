@@ -20,6 +20,8 @@ void solve() {
     for (int i = 0; i < n; i++) {
         int a, b, c;
         cin >> a >> b >> c;
+
+        // solve it when at least two are sure
         if (a + b + c > 1) {
             k += 1;
         }

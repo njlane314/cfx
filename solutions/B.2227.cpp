@@ -28,6 +28,7 @@ void solve() {
             }
         }
 
+        // order can be repaired; counts must already match
         cout << (2 * open == n ? "YES" : "NO") << '\n';
     }
 }

@@ -20,6 +20,7 @@ void solve() {
         int n;
         cin >> n;
 
+        // only the factors needed for 6 matter
         vector<ll> two;
         vector<ll> neutral;
         vector<ll> three;
@@ -46,6 +47,7 @@ void solve() {
             }
         };
 
+        // keep 2-only and 3-only apart; neutrals do not join them
         print(two);
         print(neutral);
         print(three);

@@ -15,6 +15,8 @@ using pll = pair<ll, ll>;
 void solve() {
     int w;
     cin >> w;
+
+    // two positive even parts need an even weight greater than 2
     cout << (w > 2 && w % 2 == 0 ? "YES" : "NO") << '\n';
 }
 

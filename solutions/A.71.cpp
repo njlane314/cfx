@@ -20,6 +20,7 @@ void solve() {
         string word;
         cin >> word;
 
+        // long words keep their ends and compress the middle
         if (word.size() <= 10) {
             cout << word << '\n';
         } else {
