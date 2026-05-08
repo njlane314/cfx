@@ -78,6 +78,20 @@ run_all() {
     exit "$status"
 }
 
+list_cases() {
+    find "$1" -maxdepth 1 -type f -name 'case-*.in' | awk '
+    {
+        path = $0
+        name = $0
+        sub(/^.*\//, "", name)
+        key = name
+        sub(/^case-/, "", key)
+        sub(/\.in$/, "", key)
+        printf "%d\t%s\n", key + 0, path
+    }
+    ' | sort -n -k1,1 -k2,2 | cut -f2-
+}
+
 if [ "$#" -eq 1 ] && [ "$1" = all ]; then
     run_all
 fi
@@ -166,7 +180,7 @@ run_case() {
     echo
 }
 
-for in_file in $(find "$TEST_DIR" -maxdepth 1 -type f -name 'case-*.in' | sort -V); do
+for in_file in $(list_cases "$TEST_DIR"); do
     run_case "$in_file"
 done
 
