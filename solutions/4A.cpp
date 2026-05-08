@@ -1,13 +1,6 @@
-// CF 4A: Watermelon. O(1).
-// solution is to check if w is even and greater than 2
-
 #include <bits/stdc++.h>
+
 using namespace std;
-
-#include "lib/core.hpp"
-#include "lib/debug.hpp"
-
-using namespace cp;
 
 using ll = long long;
 
