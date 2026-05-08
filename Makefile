@@ -1,53 +1,47 @@
 SOURCES := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f 2>/dev/null | sort)
 LATEST_SOURCE := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f -exec ls -t {} + 2>/dev/null | sed -n '1p')
 GOAL := $(or $(firstword $(MAKECMDGOALS)),run)
+ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+ARG1 := $(firstword $(ARGS))
+ARGREST := $(wordlist 2,$(words $(ARGS)),$(ARGS))
 .DEFAULT_GOAL := run
-P ?=
+P ?= $(ARG1)
 ID ?= $(P)
 PARTS ?= A-H
 PROBLEM ?=
-ifneq ($(strip $(ID)),)
-SRC ?= solutions/$(ID).cpp
-else
 ifneq ($(strip $(LATEST_SOURCE)),)
 SRC ?= $(LATEST_SOURCE)
 else
 SRC ?=
 endif
-endif
 RUN_ARG := $(if $(strip $(ID)),$(ID),$(SRC))
-BUILD_ID := $(if $(strip $(ID)),$(ID),$(basename $(notdir $(SRC))))
 
-.PHONY: all run run-all bundle new submit install clean check-src
+.PHONY: all run run-all bundle new submit install clean check-arg $(ARGS)
 
-check-src:
-	@test -n "$(SRC)" || { \
-		echo 'usage: make $(GOAL) P=1985A'; \
-		echo '   or: make $(GOAL) SRC=solutions/1985A.cpp'; \
-		echo 'create problems with: make new C=1985 P=A-H'; \
-		exit 2; \
-	}
-	@test -f "$(SRC)" || { \
-		echo 'source not found: $(SRC)'; \
-		echo 'create it with: make new C=1985 P=A-H'; \
+check-arg:
+	@test -n "$(RUN_ARG)" || { \
+		echo 'usage: make $(GOAL) 1985A'; \
+		echo '   or: make $(GOAL) P=1985A'; \
+		echo 'create problems with: make new 1985 A-H'; \
 		exit 2; \
 	}
 
-run: check-src
+run: check-arg
 	./bin/run $(RUN_ARG)
 
 all:
 	./bin/run all
 
-bundle: check-src
-	mkdir -p submissions
-	./bin/bundle $(RUN_ARG) > submissions/$(BUILD_ID).cpp
-	@echo submissions/$(BUILD_ID).cpp
+bundle: check-arg
+	@mkdir -p submissions
+	@out_id=$$(printf '%s\n' "$(RUN_ARG)" | sed -E -e 's|.*/([^/]+)\.cpp$$|\1|' -e 's|^([0-9]+)([A-Za-z][A-Za-z0-9]*)$$|\2.\1|'); \
+	./bin/bundle "$(RUN_ARG)" > "submissions/$$out_id.cpp"; \
+	echo "submissions/$$out_id.cpp"
 
 new:
 	@test -n "$(strip $(C)$(P))" || { \
-		echo 'usage: make new P=71A'; \
-		echo '   or: make new C=1985 P=A-H'; \
+		echo 'usage: make new 71A'; \
+		echo '   or: make new 1985 A-H'; \
 		exit 2; \
 	}
 	@if [ -n "$(strip $(C))" ]; then \
@@ -57,10 +51,10 @@ new:
 			./bin/new "$(C)"; \
 		fi; \
 	else \
-		./bin/new "$(P)"; \
+		./bin/new "$(P)" $(ARGREST); \
 	fi
 
-submit: check-src
+submit: check-arg
 	./bin/submit $(RUN_ARG) $(PROBLEM)
 
 install:
@@ -79,3 +73,6 @@ install:
 
 clean:
 	rm -rf .build submissions
+
+$(ARGS):
+	@:

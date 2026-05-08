@@ -2,6 +2,8 @@
 
 [Codeforces](https://codeforces.com) problem solutions written in C++20.
 
+Files are named `solutions/A.71.cpp`; tests live in `tests/A.71/`.
+
 ## Make
 
 ```sh

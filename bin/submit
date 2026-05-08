@@ -3,29 +3,39 @@ set -eu
 
 if [ $# -lt 1 ]; then
     echo "usage: submit 1985A [problem-id]" >&2
-    echo "   or: submit solutions/1985A.cpp [problem-id]" >&2
+    echo "   or: submit solutions/A.1985.cpp [problem-id]" >&2
     exit 2
 fi
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ARG=$1
 
+store_id() {
+    printf '%s\n' "$1" | sed -E 's/^([0-9]+)([A-Za-z][A-Za-z0-9]*)$/\2.\1/'
+}
+
+cf_id() {
+    printf '%s\n' "$1" | sed -E 's/^([A-Za-z][A-Za-z0-9]*)\.([0-9]+)$/\2\1/'
+}
+
 if [ -f "$ARG" ]; then
     SRC=$ARG
     ID=$(basename -- "$SRC" .cpp)
-elif [ -f "$ROOT/solutions/$ARG.cpp" ]; then
-    SRC="$ROOT/solutions/$ARG.cpp"
-    ID=$ARG
-elif [ -f "$ROOT/$ARG" ]; then
-    SRC="$ROOT/$ARG"
-    ID=$(basename -- "$SRC" .cpp)
 else
-    echo "submit: source not found for '$ARG'" >&2
-    echo "expected: solutions/$ARG.cpp" >&2
-    exit 1
+    ID=$(store_id "$ARG")
+    if [ -f "$ROOT/solutions/$ID.cpp" ]; then
+        SRC="$ROOT/solutions/$ID.cpp"
+    elif [ -f "$ROOT/$ARG" ]; then
+        SRC="$ROOT/$ARG"
+        ID=$(basename -- "$SRC" .cpp)
+    else
+        echo "submit: source not found for '$ARG'" >&2
+        echo "expected: solutions/$ID.cpp" >&2
+        exit 1
+    fi
 fi
 
-PROBLEM=${2:-$ID}
+PROBLEM=${2:-$(cf_id "$ID")}
 OUT_DIR="$ROOT/submissions"
 mkdir -p "$OUT_DIR"
 OUT="$OUT_DIR/$ID.cpp"

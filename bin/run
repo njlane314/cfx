@@ -4,6 +4,10 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ARG=${1:-}
 
+store_id() {
+    printf '%s\n' "$1" | sed -E 's/^([0-9]+)([A-Za-z][A-Za-z0-9]*)$/\2.\1/'
+}
+
 run_all() {
     found=0
     status=0
@@ -37,7 +41,7 @@ resolve_source() {
         fi
 
         echo "usage: run 1985A" >&2
-        echo "   or: run solutions/1985A.cpp" >&2
+        echo "   or: run solutions/A.1985.cpp" >&2
         exit 2
     fi
 
@@ -47,9 +51,10 @@ resolve_source() {
         return
     fi
 
-    if [ -f "$ROOT/solutions/$arg.cpp" ]; then
-        SRC="$ROOT/solutions/$arg.cpp"
-        ID=$arg
+    id=$(store_id "$arg")
+    if [ -f "$ROOT/solutions/$id.cpp" ]; then
+        SRC="$ROOT/solutions/$id.cpp"
+        ID=$id
         return
     fi
 
@@ -60,7 +65,7 @@ resolve_source() {
     fi
 
     echo "run: source not found for '$arg'" >&2
-    echo "expected: solutions/$arg.cpp" >&2
+    echo "expected: solutions/$id.cpp" >&2
     exit 1
 }
 
