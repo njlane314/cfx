@@ -18,7 +18,7 @@ make clean
 
 ```text
 bin/          shell commands
-include/      empty local include root
+include/      local include root
 solutions/    editable solutions
 submissions/  bundled single-file output
 tests/        sample tests by problem id

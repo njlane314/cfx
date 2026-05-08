@@ -101,7 +101,7 @@ ensure_cxx_headers() {
 
 ensure_cxx_headers
 # shellcheck disable=SC2086
-$CXX -std="$STD" $CXXFLAGS -I"$ROOT" "$OUT_CPP" -o "$BIN"
+$CXX -std="$STD" $CXXFLAGS -I"$ROOT/include" "$OUT_CPP" -o "$BIN"
 
 TEST_DIR="$ROOT/tests/$ID"
 if [ ! -d "$TEST_DIR" ] && [ -d "$SRC_DIR/tests" ]; then
