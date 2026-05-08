@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+if [ $# -lt 1 ]; then
+    echo "usage: submit 1985A [problem-id]" >&2
+    echo "   or: submit solutions/1985A.cpp [problem-id]" >&2
+    exit 2
+fi
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ARG=$1
+
+if [ -f "$ARG" ]; then
+    SRC=$ARG
+    ID=$(basename -- "$SRC" .cpp)
+elif [ -f "$ROOT/solutions/$ARG.cpp" ]; then
+    SRC="$ROOT/solutions/$ARG.cpp"
+    ID=$ARG
+elif [ -f "$ROOT/$ARG" ]; then
+    SRC="$ROOT/$ARG"
+    ID=$(basename -- "$SRC" .cpp)
+else
+    echo "submit: source not found for '$ARG'" >&2
+    echo "expected: solutions/$ARG.cpp" >&2
+    exit 1
+fi
+
+PROBLEM=${2:-$ID}
+OUT_DIR="$ROOT/submissions"
+mkdir -p "$OUT_DIR"
+OUT="$OUT_DIR/$ID.cpp"
+
+"$ROOT/bin/bundle" "$SRC" > "$OUT"
+
+if [ -n "$PROBLEM" ] && command -v cf >/dev/null 2>&1; then
+    cf submit -f "$OUT" "$PROBLEM"
+else
+    echo "bundled: $OUT"
+    echo "upload this file on Codeforces and choose GNU++20/C++20."
+fi

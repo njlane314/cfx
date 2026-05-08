@@ -1,0 +1,70 @@
+#!/bin/sh
+set -eu
+
+if [ $# -ne 1 ]; then
+    echo "usage: bundle 1985A" >&2
+    echo "   or: bundle solutions/1985A.cpp" >&2
+    exit 2
+fi
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ARG=$1
+
+if [ -f "$ARG" ]; then
+    SRC=$ARG
+elif [ -f "$ROOT/solutions/$ARG.cpp" ]; then
+    SRC="$ROOT/solutions/$ARG.cpp"
+elif [ -f "$ROOT/$ARG" ]; then
+    SRC="$ROOT/$ARG"
+else
+    echo "bundle: source not found for '$ARG'" >&2
+    echo "expected: solutions/$ARG.cpp" >&2
+    exit 1
+fi
+
+SEEN=$(mktemp "${TMPDIR:-/tmp}/bundle.XXXXXX")
+trap 'rm -f "$SEEN"' EXIT HUP INT TERM
+
+canon() {
+    d=$(dirname -- "$1")
+    b=$(basename -- "$1")
+    printf '%s/%s\n' "$(CDPATH= cd -- "$d" && pwd)" "$b"
+}
+
+resolve_include() {
+    inc=$1
+    dir=$2
+    if [ -f "$dir/$inc" ]; then
+        canon "$dir/$inc"
+    elif [ -f "$ROOT/$inc" ]; then
+        canon "$ROOT/$inc"
+    else
+        echo "bundle: cannot resolve include '$inc' from $dir" >&2
+        exit 1
+    fi
+}
+
+bundle_file() {
+    file=$(canon "$1")
+    dir=$(dirname -- "$file")
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        inc=$(printf '%s\n' "$line" | sed -n 's/^[[:space:]]*#include[[:space:]]*"\([^"]*\)".*/\1/p')
+        if [ -n "$inc" ]; then
+            path=$(resolve_include "$inc" "$dir")
+            if ! grep -Fqx "$path" "$SEEN"; then
+                printf '%s\n' "$path" >> "$SEEN"
+                printf '\n// ===== BEGIN %s =====\n' "$inc"
+                bundle_file "$path"
+                printf '// ===== END %s =====\n\n' "$inc"
+            fi
+        else
+            case "$line" in
+                "#pragma once") : ;;
+                *) printf '%s\n' "$line" ;;
+            esac
+        fi
+    done < "$file"
+}
+
+bundle_file "$SRC"

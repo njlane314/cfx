@@ -1,0 +1,185 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ARG=${1:-}
+
+run_all() {
+    found=0
+    status=0
+
+    for src in $(find "$ROOT/solutions" -maxdepth 1 -name '*.cpp' -type f | sort); do
+        found=1
+        id=$(basename -- "$src" .cpp)
+        printf '\n==> %s\n' "$id"
+        if "$ROOT/bin/run" "$src"; then
+            :
+        else
+            status=1
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        echo "no solutions found in $ROOT/solutions" >&2
+        exit 2
+    fi
+
+    exit "$status"
+}
+
+resolve_source() {
+    arg=$1
+    if [ -z "$arg" ]; then
+        SRC=$(find "$ROOT/solutions" -maxdepth 1 -name '*.cpp' -type f -exec ls -t {} + 2>/dev/null | sed -n '1p')
+        if [ -n "$SRC" ]; then
+            ID=$(basename -- "$SRC" .cpp)
+            return
+        fi
+
+        echo "usage: run 1985A" >&2
+        echo "   or: run solutions/1985A.cpp" >&2
+        exit 2
+    fi
+
+    if [ -f "$arg" ]; then
+        SRC=$arg
+        ID=$(basename -- "$SRC" .cpp)
+        return
+    fi
+
+    if [ -f "$ROOT/solutions/$arg.cpp" ]; then
+        SRC="$ROOT/solutions/$arg.cpp"
+        ID=$arg
+        return
+    fi
+
+    if [ -f "$ROOT/$arg" ]; then
+        SRC="$ROOT/$arg"
+        ID=$(basename -- "$SRC" .cpp)
+        return
+    fi
+
+    echo "run: source not found for '$arg'" >&2
+    echo "expected: solutions/$arg.cpp" >&2
+    exit 1
+}
+
+if [ "$ARG" = all ]; then
+    run_all
+fi
+
+resolve_source "$ARG"
+
+SRC_DIR=$(dirname -- "$SRC")
+BUILD="$ROOT/.build/$ID"
+mkdir -p "$BUILD"
+
+OUT_CPP="$BUILD/submit.cpp"
+BIN="$BUILD/main"
+"$ROOT/bin/bundle" "$SRC" > "$OUT_CPP"
+
+CXX=${CXX:-g++}
+STD=${STD:-gnu++20}
+CXXFLAGS=${CXXFLAGS:--O2 -pipe -Wall -Wextra -Wshadow -DLOCAL}
+
+ensure_cxx_headers() {
+    check_bin="$BUILD/.cxx_header_check"
+    if printf '#include <iostream>\nint main(){return 0;}\n' | \
+        $CXX -std="$STD" $CXXFLAGS -x c++ - -o "$check_bin" >/dev/null 2>&1; then
+        rm -f "$check_bin"
+        return
+    fi
+
+    if command -v xcrun >/dev/null 2>&1; then
+        sdk=$(xcrun --show-sdk-path 2>/dev/null || true)
+        if [ -n "$sdk" ] && [ -d "$sdk/usr/include/c++/v1" ]; then
+            CXXFLAGS="$CXXFLAGS -isystem $sdk/usr/include/c++/v1"
+        fi
+    fi
+    rm -f "$check_bin"
+}
+
+ensure_cxx_headers
+# shellcheck disable=SC2086
+$CXX -std="$STD" $CXXFLAGS -I"$ROOT" "$OUT_CPP" -o "$BIN"
+
+TEST_DIR="$ROOT/tests/$ID"
+if [ ! -d "$TEST_DIR" ] && [ -d "$SRC_DIR/tests" ]; then
+    TEST_DIR="$SRC_DIR/tests"
+fi
+if [ ! -d "$TEST_DIR" ]; then
+    echo "compiled: $SRC"
+    echo "no tests directory: $TEST_DIR"
+    exit 0
+fi
+
+pass=0
+total=0
+found=0
+
+run_case() {
+    in_file=$1
+    [ -f "$in_file" ] || return 0
+    found=1
+    total=$((total + 1))
+
+    name=$(basename -- "$in_file")
+    stem=${in_file%.*}
+    ans_file=""
+
+    [ -f "$stem.out" ] && ans_file="$stem.out"
+
+    out_file="$BUILD/out_$total.txt"
+    err_file="$BUILD/err_$total.txt"
+    status=0
+
+    echo "==> $name"
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${TL:-5}" "$BIN" < "$in_file" > "$out_file" 2> "$err_file" || status=$?
+    else
+        "$BIN" < "$in_file" > "$out_file" 2> "$err_file" || status=$?
+    fi
+
+    if [ "$status" -ne 0 ]; then
+        echo "runtime failure: exit $status"
+        [ -s "$err_file" ] && cat "$err_file" >&2
+        echo
+        return 0
+    fi
+
+    if [ -s "$err_file" ]; then
+        echo "stderr:" >&2
+        cat "$err_file" >&2
+    fi
+
+    if [ -n "$ans_file" ]; then
+        ans_norm="$BUILD/ans_$total.norm.txt"
+        out_norm="$BUILD/out_$total.norm.txt"
+        sed 's/[[:space:]]*$//' "$ans_file" > "$ans_norm"
+        sed 's/[[:space:]]*$//' "$out_file" > "$out_norm"
+        if diff -u -B "$ans_norm" "$out_norm"; then
+            echo "OK"
+            pass=$((pass + 1))
+        else
+            echo "WA"
+        fi
+    else
+        echo "output:"
+        cat "$out_file"
+        pass=$((pass + 1))
+    fi
+    echo
+}
+
+for in_file in $(find "$TEST_DIR" -maxdepth 1 -type f -name 'case-*.in' | sort -V); do
+    run_case "$in_file"
+done
+
+if [ "$found" -eq 0 ]; then
+    echo "compiled: $SRC"
+    echo "no tests found: use $TEST_DIR/case-1.in + case-1.out"
+    exit 0
+fi
+
+echo "$pass/$total passed"
+[ "$pass" -eq "$total" ]

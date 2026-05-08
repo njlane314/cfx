@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+if [ $# -lt 1 ]; then
+    echo "usage: new PROBLEM_ID" >&2
+    echo "   or: new CONTEST [A-H|A B C ...]" >&2
+    exit 2
+fi
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+CONTEST=$1
+shift || true
+
+if [ $# -eq 0 ]; then
+    case "$CONTEST" in
+        *[!0-9]*)
+            SPECS=
+            ;;
+        *)
+            SPECS=A-H
+            ;;
+    esac
+else
+    SPECS=$*
+fi
+
+expand_specs() {
+    printf '%s\n' "$@" | tr ' ' '\n' | awk '
+    BEGIN { chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
+    /^[A-Z]-[A-Z]$/ {
+        a = index(chars, substr($0, 1, 1));
+        b = index(chars, substr($0, 3, 1));
+        if (a > 0 && b >= a) {
+            for (i = a; i <= b; ++i) print substr(chars, i, 1);
+            next;
+        }
+    }
+    NF { print }
+    '
+}
+
+if [ -z "$SPECS" ]; then
+    IDS=$CONTEST
+else
+    IDS=$(for P in $(expand_specs $SPECS); do printf '%s\n' "$CONTEST$P"; done)
+fi
+
+for ID in $IDS; do
+    SRC="$ROOT/solutions/$ID.cpp"
+    TEST_DIR="$ROOT/tests/$ID"
+
+    mkdir -p "$ROOT/solutions" "$TEST_DIR"
+    if [ ! -f "$SRC" ]; then
+        cp "$ROOT/template.cpp" "$SRC"
+    fi
+    : > "$TEST_DIR/.gitkeep"
+    echo "$SRC"
+done
