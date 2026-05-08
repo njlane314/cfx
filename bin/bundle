@@ -47,6 +47,8 @@ resolve_include() {
     dir=$2
     if [ -f "$dir/$inc" ]; then
         canon "$dir/$inc"
+    elif [ -f "$ROOT/include/$inc" ]; then
+        canon "$ROOT/include/$inc"
     elif [ -f "$ROOT/$inc" ]; then
         canon "$ROOT/$inc"
     else

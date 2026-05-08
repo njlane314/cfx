@@ -1,17 +1,8 @@
-#include <bits/stdc++.h>
+#include "cp.hpp"
 
-using namespace std;
-
-using ll = long long;
-
-void solve(istream& in = cin, ostream& out = cout) {
-    (void)in;
-    (void)out;
-
+void solve() {
     int n;
-    in >> n;
-
-
+    scan(n);
 }
 
 int main() {
