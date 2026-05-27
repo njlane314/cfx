@@ -2,7 +2,7 @@ SOURCES := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f 2>/dev/null 
 LATEST_SOURCE := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f -exec ls -t {} + 2>/dev/null | sed -n '1p')
 GOAL := $(or $(firstword $(MAKECMDGOALS)),run)
 ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-ABSORB_ARGS := $(filter run rerun bundle new,$(GOAL))
+ABSORB_ARGS := $(filter run rerun check bundle new stress probe bench case fail pick contest seen meta rank solved sample cc,$(GOAL))
 .DEFAULT_GOAL := run
 ifneq ($(strip $(LATEST_SOURCE)),)
 SRC ?= $(LATEST_SOURCE)
@@ -10,8 +10,10 @@ else
 SRC ?=
 endif
 RUN_ARGS := $(if $(strip $(ARGS)),$(ARGS),$(SRC))
+LOCAL_ENV_VAR = $(if $(filter command line environment,$(origin $(1))),$(1)='$($(1))')
+LOCAL_ENV := $(foreach v,N GEN BRUTE SEED GENARGS TL GENTL VERBOSE SHOW_BYTES CXX STD CXXFLAGS CHECK,$(call LOCAL_ENV_VAR,$(v)))
 
-.PHONY: run rerun bundle new install clean check-run-arg check-new-arg
+.PHONY: run rerun check bundle new stress probe bench case fail pick contest seen meta rank solved sample cc install clean check-run-arg check-new-arg
 
 ifneq ($(strip $(ABSORB_ARGS)),)
 .PHONY: $(ARGS)
@@ -43,15 +45,57 @@ run: check-run-arg
 rerun: check-run-arg
 	./bin/rerun $(RUN_ARGS)
 
+check: check-run-arg
+	CHECK=1 ./bin/run $(RUN_ARGS)
+
 bundle: check-run-arg
 	@./bin/bundle $(RUN_ARGS)
 
 new: check-new-arg
 	./bin/new $(ARGS)
 
+stress:
+	$(LOCAL_ENV) ./bin/stress $(ARGS)
+
+probe:
+	$(LOCAL_ENV) ./bin/probe $(ARGS)
+
+bench:
+	$(LOCAL_ENV) ./bin/bench $(ARGS)
+
+case:
+	$(LOCAL_ENV) ./bin/case $(ARGS)
+
+fail:
+	$(LOCAL_ENV) ./bin/fail $(ARGS)
+
+pick:
+	./bin/pick $(ARGS)
+
+contest:
+	./bin/contest $(ARGS)
+
+seen:
+	./bin/seen $(ARGS)
+
+meta:
+	./bin/meta $(ARGS)
+
+rank:
+	./bin/rank $(ARGS)
+
+solved:
+	./bin/solved $(ARGS)
+
+sample:
+	./bin/sample $(ARGS)
+
+cc:
+	./bin/cc $(ARGS)
+
 install:
 	mkdir -p $$HOME/.local/bin
-	@set -e; for cmd in bundle run rerun new; do \
+	@set -e; for cmd in bundle run rerun new _local stress probe bench case fail _cf pick contest seen meta rank solved sample cc; do \
 		src="$(CURDIR)/bin/$$cmd"; \
 		dst="$$HOME/.local/bin/$$cmd"; \
 		target=$$(readlink "$$dst" 2>/dev/null || true); \

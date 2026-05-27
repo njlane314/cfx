@@ -1,0 +1,522 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BUILD = os.path.join(ROOT, ".build")
+
+
+class Error(Exception):
+    pass
+
+
+def eprint(*parts):
+    print(*parts, file=sys.stderr)
+
+
+def parse_problem(args):
+    if not args:
+        raise Error("expected problem as A 123, A.123, or 123A")
+    if len(args) >= 2 and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", args[0]) and re.fullmatch(r"\d+", args[1]):
+        return args[1], args[0].upper(), args[2:]
+
+    token = args[0]
+    m = re.fullmatch(r"([A-Za-z][A-Za-z0-9]*)\.(\d+)", token)
+    if m:
+        return m.group(2), m.group(1).upper(), args[1:]
+
+    m = re.fullmatch(r"(\d+)([A-Za-z][A-Za-z0-9]*)", token)
+    if m:
+        return m.group(1), m.group(2).upper(), args[1:]
+
+    raise Error("expected problem as A 123, A.123, or 123A")
+
+
+def local_id(contest_id, index):
+    return f"{index}.{contest_id}"
+
+
+def solution_path(problem_id):
+    return os.path.join(ROOT, "solutions", f"{problem_id}.cpp")
+
+
+def tests_dir(problem_id):
+    return os.path.join(ROOT, "tests", problem_id)
+
+
+def stress_dir(problem_id):
+    return os.path.join(BUILD, "stress", problem_id)
+
+
+def format_bytes(size):
+    if size < 1024:
+        return f"{size}B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f}KiB"
+    return f"{size / (1024 * 1024):.1f}MiB"
+
+
+def format_ms(ms):
+    if ms < 1000:
+        return f"{ms}ms"
+    return f"{ms / 1000:.3f}s"
+
+
+def cxx_parts():
+    cxx = os.environ.get("CXX", "g++")
+    std = os.environ.get("STD", "gnu++20")
+    flags = shlex.split(os.environ.get("CXXFLAGS", "-O2 -pipe -Wall -Wextra -Wshadow -Wformat=2 -DLOCAL"))
+    return cxx, std, flags
+
+
+def extra_header_flags(build_dir, cxx, std, flags):
+    os.makedirs(build_dir, exist_ok=True)
+    check_bin = os.path.join(build_dir, ".cxx_header_check")
+    cmd = [cxx, f"-std={std}", *flags, "-x", "c++", "-", "-o", check_bin]
+    probe = subprocess.run(
+        cmd,
+        input=b"#include <iostream>\nint main(){return 0;}\n",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        os.remove(check_bin)
+    except FileNotFoundError:
+        pass
+    if probe.returncode == 0:
+        return []
+
+    xcrun = shutil.which("xcrun")
+    if not xcrun:
+        return []
+    sdk = subprocess.run([xcrun, "--show-sdk-path"], text=True, capture_output=True)
+    if sdk.returncode != 0:
+        return []
+    include = os.path.join(sdk.stdout.strip(), "usr", "include", "c++", "v1")
+    if os.path.isdir(include):
+        return ["-isystem", include]
+    return []
+
+
+def check_enabled():
+    return os.environ.get("CHECK", "0").lower() in {"1", "yes", "true", "on"}
+
+
+def compiler_probe_flags(cxx):
+    probe = subprocess.run([cxx, "--version"], text=True, capture_output=True)
+    text = (probe.stdout + probe.stderr).lower()
+    if "clang" in text:
+        return ["-Werror=unknown-warning-option", "-Werror=unused-command-line-argument"]
+    return []
+
+
+def supports_cxx_flag(cxx, std, flags, header_flags, build_dir, flag):
+    check_bin = os.path.join(build_dir, ".cxx_flag_check")
+    cmd = [
+        cxx,
+        f"-std={std}",
+        *flags,
+        *header_flags,
+        *compiler_probe_flags(cxx),
+        flag,
+        "-x",
+        "c++",
+        "-",
+        "-o",
+        check_bin,
+    ]
+    probe = subprocess.run(
+        cmd,
+        input=b"#include <iostream>\nint main(){return 0;}\n",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        os.remove(check_bin)
+    except FileNotFoundError:
+        pass
+    return probe.returncode == 0
+
+
+def add_check_flags(cxx, std, flags, header_flags, build_dir):
+    if not check_enabled():
+        return flags
+
+    checked = list(flags)
+    for flag in [
+        "-pedantic",
+        "-Wformat=2",
+        "-Wfloat-equal",
+        "-Wconversion",
+        "-Wlogical-op",
+        "-Wshift-overflow=2",
+        "-Wduplicated-cond",
+        "-Wcast-qual",
+        "-Wcast-align",
+    ]:
+        if supports_cxx_flag(cxx, std, checked, header_flags, build_dir, flag):
+            checked.append(flag)
+
+    checked += ["-D_GLIBCXX_DEBUG", "-D_GLIBCXX_DEBUG_PEDANTIC"]
+    if sys.platform.startswith("linux"):
+        checked.append("-D_FORTIFY_SOURCE=2")
+
+    for flag in [
+        "-fsanitize=address",
+        "-fsanitize=undefined",
+        "-fno-sanitize-recover",
+        "-fstack-protector",
+    ]:
+        if supports_cxx_flag(cxx, std, checked, header_flags, build_dir, flag):
+            checked.append(flag)
+
+    return checked
+
+
+def compile_cpp(src, out, build_dir):
+    if not os.path.exists(src):
+        raise Error(f"source not found: {src}")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    os.makedirs(build_dir, exist_ok=True)
+
+    bundle = subprocess.run(
+        [os.path.join(ROOT, "bin", "bundle"), src],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if bundle.returncode != 0:
+        sys.stderr.buffer.write(bundle.stderr)
+        raise Error(f"bundle failed: {src}")
+
+    cxx, std, flags = cxx_parts()
+    header_flags = extra_header_flags(build_dir, cxx, std, flags)
+    flags = add_check_flags(cxx, std, flags, header_flags, build_dir)
+    cmd = [
+        cxx,
+        f"-std={std}",
+        *flags,
+        *header_flags,
+        "-I",
+        os.path.join(ROOT, "include"),
+        "-x",
+        "c++",
+        "-",
+        "-o",
+        out,
+    ]
+    compile_run = subprocess.run(cmd, input=bundle.stdout)
+    if compile_run.returncode != 0:
+        raise Error(f"compile failed: {src}")
+    return out
+
+
+def compile_solution(problem_id, build_dir=None):
+    src = solution_path(problem_id)
+    if build_dir is None:
+        build_dir = os.path.join(BUILD, problem_id)
+    out = os.path.join(build_dir, "main")
+    return compile_cpp(src, out, build_dir)
+
+
+def run_timed(argv, input_path, out_path, err_path, limit=None):
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    limit = float(limit or os.environ.get("TL", "5"))
+    start = time.perf_counter()
+    status = 0
+    try:
+        with open(input_path, "rb") as inp, open(out_path, "wb") as out, open(err_path, "wb") as err:
+            run = subprocess.run(argv, stdin=inp, stdout=out, stderr=err, timeout=limit)
+            status = run.returncode
+    except subprocess.TimeoutExpired:
+        status = 124
+    elapsed = max(0, round((time.perf_counter() - start) * 1000))
+    return status, elapsed
+
+
+def run_generator(argv, out_path):
+    err_path = os.path.join(os.path.dirname(out_path), "gen.err")
+    limit = float(os.environ.get("GENTL", os.environ.get("TL", "5")))
+    start = time.perf_counter()
+    status = 0
+    try:
+        with open(out_path, "wb") as out, open(err_path, "wb") as err:
+            run = subprocess.run(argv, stdout=out, stderr=err, timeout=limit)
+            status = run.returncode
+    except subprocess.TimeoutExpired:
+        status = 124
+    elapsed = max(0, round((time.perf_counter() - start) * 1000))
+    return status, elapsed, err_path
+
+
+def normalized_bytes(path):
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-8", "replace")
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return b""
+    return ("\n".join(lines) + "\n").encode()
+
+
+def outputs_match(a, b):
+    return normalized_bytes(a) == normalized_bytes(b)
+
+
+def print_diff(a, b):
+    import difflib
+
+    left = normalized_bytes(a).decode("utf-8", "replace").splitlines(keepends=True)
+    right = normalized_bytes(b).decode("utf-8", "replace").splitlines(keepends=True)
+    sys.stdout.writelines(difflib.unified_diff(left, right, fromfile="out.txt", tofile="ans.txt"))
+
+
+def copy_input(src, dst):
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    if src == "-":
+        with open(dst, "wb") as out:
+            shutil.copyfileobj(sys.stdin.buffer, out)
+    else:
+        if not os.path.exists(src):
+            raise Error(f"input not found: {src}")
+        shutil.copyfile(src, dst)
+
+
+def next_case_number(problem_id):
+    directory = tests_dir(problem_id)
+    os.makedirs(directory, exist_ok=True)
+    used = set()
+    for name in os.listdir(directory):
+        m = re.fullmatch(r"case-(\d+)\.in", name)
+        if m:
+            used.add(int(m.group(1)))
+    number = 1
+    while number in used:
+        number += 1
+    return number
+
+
+def write_case(problem_id, input_src, answer_src=None):
+    number = next_case_number(problem_id)
+    directory = tests_dir(problem_id)
+    in_path = os.path.join(directory, f"case-{number}.in")
+    out_path = os.path.join(directory, f"case-{number}.out")
+    copy_input(input_src, in_path)
+    print(f"wrote: {in_path}")
+    if answer_src:
+        if not os.path.exists(answer_src):
+            raise Error(f"answer not found: {answer_src}")
+        shutil.copyfile(answer_src, out_path)
+        print(f"wrote: {out_path}")
+    return in_path, out_path if answer_src else None
+
+
+def digest_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def cmd_stress(args):
+    contest_id, index, rest = parse_problem(args.problem)
+    if rest:
+        raise Error("usage: stress A 123")
+    pid = local_id(contest_id, index)
+    out_dir = stress_dir(pid)
+    os.makedirs(out_dir, exist_ok=True)
+
+    gen_src = os.environ.get("GEN", os.path.join(ROOT, "stress", f"{pid}.gen.cpp"))
+    brute_src = os.environ.get("BRUTE", os.path.join(ROOT, "stress", f"{pid}.brute.cpp"))
+    if not os.path.isabs(gen_src):
+        gen_src = os.path.join(ROOT, gen_src)
+    if not os.path.isabs(brute_src):
+        brute_src = os.path.join(ROOT, brute_src)
+
+    n = int(os.environ.get("N", "100"))
+    seed0 = int(os.environ.get("SEED", "1"))
+    gen_args = shlex.split(os.environ.get("GENARGS", ""))
+
+    main_bin = compile_solution(pid, out_dir)
+    gen_bin = compile_cpp(gen_src, os.path.join(out_dir, "gen"), out_dir)
+    brute_bin = compile_cpp(brute_src, os.path.join(out_dir, "brute"), out_dir)
+
+    fail_in = os.path.join(out_dir, "fail.in")
+    out_txt = os.path.join(out_dir, "out.txt")
+    ans_txt = os.path.join(out_dir, "ans.txt")
+    sol_err = os.path.join(out_dir, "out.err")
+    brute_err = os.path.join(out_dir, "ans.err")
+
+    for offset in range(n):
+        seed = seed0 + offset
+        gen_status, gen_ms, gen_err = run_generator([gen_bin, str(seed), *gen_args], fail_in)
+        if gen_status != 0:
+            print(f"generator failed on seed {seed}: exit {gen_status} ({format_ms(gen_ms)})")
+            if os.path.getsize(gen_err):
+                with open(gen_err, "r", encoding="utf-8", errors="replace") as f:
+                    sys.stderr.write(f.read())
+            return 1
+
+        sol_status, sol_ms = run_timed([main_bin], fail_in, out_txt, sol_err)
+        brute_status, brute_ms = run_timed([brute_bin], fail_in, ans_txt, brute_err)
+        if sol_status != 0 or brute_status != 0:
+            print(f"failure on seed {seed}: solution exit {sol_status}, brute exit {brute_status}")
+            print(f"saved: {fail_in}")
+            return 1
+        if not outputs_match(out_txt, ans_txt):
+            print(f"mismatch on seed {seed}: solution {format_ms(sol_ms)}, brute {format_ms(brute_ms)}")
+            print(f"saved: {fail_in}")
+            print(f"output: {out_txt}")
+            print(f"answer: {ans_txt}")
+            print_diff(out_txt, ans_txt)
+            return 1
+        if os.environ.get("VERBOSE") and (offset == 0 or (offset + 1) % 100 == 0):
+            print(f"OK {offset + 1}/{n}")
+
+    print(f"OK {n} seeds")
+    return 0
+
+
+def cmd_probe(args):
+    contest_id, index, rest = parse_problem(args.problem)
+    if len(rest) != 1:
+        raise Error("usage: probe A 123 input.txt")
+    pid = local_id(contest_id, index)
+    out_dir = stress_dir(pid)
+    os.makedirs(out_dir, exist_ok=True)
+    fail_in = os.path.join(out_dir, "fail.in")
+    out_txt = os.path.join(out_dir, "out.txt")
+    err_txt = os.path.join(out_dir, "out.err")
+    time_txt = os.path.join(out_dir, "time.txt")
+
+    copy_input(rest[0], fail_in)
+    main_bin = compile_solution(pid, out_dir)
+    status, elapsed = run_timed([main_bin], fail_in, out_txt, err_txt)
+    with open(time_txt, "w", encoding="utf-8") as f:
+        f.write(str(elapsed) + "\n")
+
+    if os.path.getsize(err_txt):
+        with open(err_txt, "r", encoding="utf-8", errors="replace") as f:
+            sys.stderr.write(f.read())
+
+    size = os.path.getsize(out_txt)
+    print(f"input: {fail_in}")
+    print(f"output: {out_txt} ({format_bytes(size)})")
+    print(f"time: {format_ms(elapsed)}")
+    show_limit = int(os.environ.get("SHOW_BYTES", "65536"))
+    if size and size <= show_limit:
+        print("==> output")
+        with open(out_txt, "r", encoding="utf-8", errors="replace") as f:
+            print(f.read(), end="")
+            if not f.tell():
+                print()
+    if status != 0:
+        print(f"runtime failure: exit {status}")
+    return status
+
+
+def cmd_bench(args):
+    contest_id, index, rest = parse_problem(args.problem)
+    if len(rest) != 1:
+        raise Error("usage: bench A 123 input.txt")
+    pid = local_id(contest_id, index)
+    input_path = rest[0]
+    if not os.path.exists(input_path):
+        raise Error(f"input not found: {input_path}")
+    out_dir = os.path.join(BUILD, "bench", pid)
+    os.makedirs(out_dir, exist_ok=True)
+    main_bin = compile_solution(pid, out_dir)
+    n = int(os.environ.get("N", "5"))
+    times = []
+    first_digest = None
+    final_out = os.path.join(out_dir, "out.txt")
+
+    for i in range(1, n + 1):
+        out_path = os.path.join(out_dir, f"out-{i}.txt")
+        err_path = os.path.join(out_dir, f"err-{i}.txt")
+        status, elapsed = run_timed([main_bin], input_path, out_path, err_path)
+        if status != 0:
+            print(f"run {i}: exit {status} ({format_ms(elapsed)})")
+            if os.path.getsize(err_path):
+                with open(err_path, "r", encoding="utf-8", errors="replace") as f:
+                    sys.stderr.write(f.read())
+            return status
+        digest = digest_file(out_path)
+        if first_digest is None:
+            first_digest = digest
+            shutil.copyfile(out_path, final_out)
+        elif digest != first_digest:
+            print(f"run {i}: output changed")
+            return 1
+        times.append(elapsed)
+        print(f"run {i}: {format_ms(elapsed)}")
+
+    total = sum(times)
+    size = os.path.getsize(final_out)
+    print(f"min: {format_ms(min(times))}")
+    print(f"avg: {format_ms(round(total / len(times)))}")
+    print(f"max: {format_ms(max(times))}")
+    print(f"output: {final_out} ({format_bytes(size)})")
+    return 0
+
+
+def cmd_case(args):
+    contest_id, index, rest = parse_problem(args.problem)
+    pid = local_id(contest_id, index)
+    if len(rest) > 2:
+        raise Error("usage: case A 123 [input.txt [answer.txt]]")
+    if not rest:
+        return 0 if write_case(pid, "-") else 1
+    if len(rest) == 1:
+        return 0 if write_case(pid, rest[0]) else 1
+    return 0 if write_case(pid, rest[0], rest[1]) else 1
+
+
+def cmd_fail(args):
+    contest_id, index, rest = parse_problem(args.problem)
+    if rest:
+        raise Error("usage: fail A 123")
+    pid = local_id(contest_id, index)
+    out_dir = stress_dir(pid)
+    fail_in = os.path.join(out_dir, "fail.in")
+    ans_txt = os.path.join(out_dir, "ans.txt")
+    if not os.path.exists(fail_in):
+        raise Error(f"missing failed input: {fail_in}")
+    return 0 if write_case(pid, fail_in, ans_txt if os.path.exists(ans_txt) else None) else 1
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]))
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    for name, func in [
+        ("stress", cmd_stress),
+        ("probe", cmd_probe),
+        ("bench", cmd_bench),
+        ("case", cmd_case),
+        ("fail", cmd_fail),
+    ]:
+        p = sub.add_parser(name)
+        p.add_argument("problem", nargs="+")
+        p.set_defaults(func=func)
+    return parser
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except Error as exc:
+        eprint(f"{args.cmd}: {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

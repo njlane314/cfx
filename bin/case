@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+SELF=$0
+LINK=$(readlink "$SELF" 2>/dev/null || true)
+if [ -n "$LINK" ]; then
+    case "$LINK" in
+        /*) SELF=$LINK ;;
+        *) SELF=$(dirname -- "$SELF")/$LINK ;;
+    esac
+fi
+DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)
+exec "$DIR/_local" case "$@"
