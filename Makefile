@@ -1,5 +1,10 @@
 SOURCES := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f 2>/dev/null | sort)
 LATEST_SOURCE := $(shell find solutions -maxdepth 1 -name '*.cpp' -type f -exec ls -t {} + 2>/dev/null | sed -n '1p')
+PREFIX ?= $(HOME)/.local
+BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/share/man
+MAN1 := man/build.1 man/test.1 man/data.1
+MAN7 := man/probs.7
 GOAL := $(or $(firstword $(MAKECMDGOALS)),run)
 ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 ABSORB_ARGS := $(filter run rerun check bundle new stress probe bench case fail pick contest seen meta rank solved sample cc,$(GOAL))
@@ -13,7 +18,7 @@ RUN_ARGS := $(if $(strip $(ARGS)),$(ARGS),$(SRC))
 LOCAL_ENV_VAR = $(if $(filter command line environment,$(origin $(1))),$(1)='$($(1))')
 LOCAL_ENV := $(foreach v,N GEN BRUTE SEED GENARGS TL GENTL VERBOSE SHOW_BYTES CXX STD CXXFLAGS CHECK,$(call LOCAL_ENV_VAR,$(v)))
 
-.PHONY: run rerun check bundle new stress probe bench case fail pick contest seen meta rank solved sample cc install clean check-run-arg check-new-arg
+.PHONY: run rerun check bundle new stress probe bench case fail pick contest seen meta rank solved sample cc man check-man install install-man clean check-run-arg check-new-arg
 
 ifneq ($(strip $(ABSORB_ARGS)),)
 .PHONY: $(ARGS)
@@ -93,11 +98,20 @@ sample:
 cc:
 	./bin/cc $(ARGS)
 
+man:
+	@set -e; for page in $(MAN1) $(MAN7); do \
+		echo "$$page"; \
+		mandoc -Tutf8 "$$page" >/dev/null; \
+	done
+
+check-man:
+	mandoc -Tlint -Wwarning $(MAN1) $(MAN7)
+
 install:
-	mkdir -p $$HOME/.local/bin
+	mkdir -p "$(DESTDIR)$(BINDIR)"
 	@set -e; for cmd in bundle run rerun new _local stress probe bench case fail _cf pick contest seen meta rank solved sample cc; do \
 		src="$(CURDIR)/bin/$$cmd"; \
-		dst="$$HOME/.local/bin/$$cmd"; \
+		dst="$(DESTDIR)$(BINDIR)/$$cmd"; \
 		target=$$(readlink "$$dst" 2>/dev/null || true); \
 		if [ -e "$$dst" ] && [ "$$target" != "$$src" ]; then \
 			echo "refusing to overwrite: $$dst"; \
@@ -108,7 +122,13 @@ install:
 	@if [ "$$(readlink "$$HOME/.local/bin/submit" 2>/dev/null || true)" = "$(CURDIR)/bin/submit" ]; then \
 		rm -f "$$HOME/.local/bin/submit"; \
 	fi
-	@echo 'ensure $$HOME/.local/bin is in PATH'
+	$(MAKE) install-man
+	@echo 'ensure $(BINDIR) is in PATH'
+
+install-man: check-man
+	mkdir -p "$(DESTDIR)$(MANDIR)/man1" "$(DESTDIR)$(MANDIR)/man7"
+	install -m 644 $(MAN1) "$(DESTDIR)$(MANDIR)/man1"
+	install -m 644 $(MAN7) "$(DESTDIR)$(MANDIR)/man7"
 
 clean:
 	rm -rf .build

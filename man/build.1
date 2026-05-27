@@ -1,0 +1,89 @@
+.Dd May 27, 2026
+.Dt BUILD 1
+.Os
+.Sh NAME
+.Nm build
+.Nd create, compile, run, and bundle solutions
+.Sh SYNOPSIS
+.Nm make
+.Cm new
+.Ar spec ...
+.Ar contest
+.Nm make
+.Cm run
+.Ar index
+.Ar contest
+.Nm make
+.Cm rerun
+.Ar index
+.Ar contest
+.Nm make
+.Cm check
+.Ar index
+.Ar contest
+.Nm make
+.Cm bundle
+.Ar index
+.Ar contest
+.Sh DESCRIPTION
+The build commands keep the submitted program and the tested program close
+together.
+The source is written once.
+It is bundled before compilation and before submission.
+.Pp
+.Cm new
+creates source files and test directories.
+The last argument is the contest id.
+Earlier arguments are problem indexes or ranges.
+.Pp
+.Cm run
+bundles and compiles the source, then runs all
+.Pa case-*.in
+files in the matching test directory.
+If a file with the same stem and suffix
+.Pa .out
+exists, output is compared against it.
+Otherwise the output is printed.
+.Pp
+.Cm rerun
+runs the cached binary in
+.Pa .build/ .
+It is useful after only a test has changed.
+If the source is newer than the binary, it says so.
+.Pp
+.Cm check
+is
+.Cm run
+with
+.Ev CHECK=1 .
+It asks the compiler for a stricter build, debug library checks, and
+sanitizers when supported.
+.Pp
+.Cm bundle
+prints the single file which should be submitted.
+It recursively expands quoted includes found beside the source, in
+.Pa include/ ,
+or from the repository root.
+.Sh FILES
+.Bl -tag -width ".Pa .build/A.71/main"
+.It Pa solutions/A.71.cpp
+Source for problem A in contest 71.
+.It Pa tests/A.71/
+Saved sample and local tests.
+.It Pa .build/A.71/main
+Compiled binary made by
+.Cm run .
+.El
+.Sh EXAMPLES
+.Bd -literal -offset indent
+make new A 71
+make new A-H 1985
+make run A 71
+make rerun all
+make check A 71
+make bundle A 71 > .build/A.71/submit.cpp
+.Ed
+.Sh SEE ALSO
+.Xr data 1 ,
+.Xr test 1 ,
+.Xr probs 7

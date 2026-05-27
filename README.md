@@ -25,12 +25,15 @@ make seen tourist
 make solved tourist
 make rank tourist
 make cc
+make man
 make all
 make clean
 ```
 
 `make bundle A 71` writes the single-file source to stdout.
 `make rerun all` runs cached binaries in `.build/` without compiling.
+`make man` renders the manual set; `make install` installs it as
+`probs(7)`, `build(1)`, `test(1)`, and `data(1)`.
 
 ## Checked builds
 

@@ -1,0 +1,92 @@
+.Dd May 27, 2026
+.Dt PROBS 7
+.Os
+.Sh NAME
+.Nm probs
+.Nd a small Codeforces workbench
+.Sh DESCRIPTION
+.Nm
+is a directory convention and a set of short commands for solving
+Codeforces problems in C++.
+It is intentionally plain.
+A solution is a file, a test is a pair of files, and a build product is
+kept out of the way.
+.Pp
+Problem names have the form
+.Pa A.71 .
+The source for that problem is
+.Pa solutions/A.71.cpp .
+Its tests are in
+.Pa tests/A.71/ .
+The compiled program and scratch output are below
+.Pa .build/ .
+.Pp
+The normal cycle is:
+.Bd -literal -offset indent
+make new A 71
+edit solutions/A.71.cpp
+make run A 71
+make bundle A 71
+.Ed
+.Pp
+The command names are short because they are used often.
+Their manual pages are not.
+See
+.Xr build 1
+for compiling and bundling,
+.Xr test 1
+for probes, cases, benchmarks, and stress tests, and
+.Xr data 1
+for commands which consult Codeforces.
+.Sh ENVIRONMENT
+.Bl -tag -width "CXXFLAGS"
+.It Ev CXX
+The C++ compiler.
+The default is
+.Cm g++ .
+.It Ev STD
+The language standard.
+The default is
+.Cm gnu++20 .
+.It Ev CXXFLAGS
+Compiler flags.
+The default is an optimized local build with warnings and
+.Dv LOCAL
+defined.
+.It Ev CHECK
+If set to
+.Cm 1 ,
+enables the checked build used by
+.Cm make check .
+.El
+.Sh FILES
+.Bl -tag -width ".Pa tests/A.71/case-1.out"
+.It Pa solutions/A.71.cpp
+The source submitted after bundling.
+.It Pa tests/A.71/case-1.in
+Input for a saved test case.
+.It Pa tests/A.71/case-1.out
+Expected output for the same test case.
+.It Pa template.cpp
+Copied by
+.Cm new
+when a new source file is made.
+.It Pa include/
+Headers available to local builds and inlined by
+.Cm bundle
+when included with quotes.
+.It Pa .build/
+Compiled programs, probe output, benchmark output, API cache, and stress
+failures.
+.El
+.Sh EXAMPLES
+.Bd -literal -offset indent
+make new A 71
+make run A 71
+make check A 71
+make probe A 71 big.in
+.Ed
+.Sh SEE ALSO
+.Xr build 1 ,
+.Xr data 1 ,
+.Xr test 1

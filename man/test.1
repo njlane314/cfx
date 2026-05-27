@@ -1,0 +1,126 @@
+.Dd May 27, 2026
+.Dt TEST 1
+.Os
+.Sh NAME
+.Nm test
+.Nd add cases, probe inputs, benchmark, and stress test
+.Sh SYNOPSIS
+.Nm make
+.Cm case
+.Ar index
+.Ar contest
+.Op Ar input Op Ar answer
+.Nm make
+.Cm probe
+.Ar index
+.Ar contest
+.Ar input
+.Nm make
+.Cm bench
+.Ar index
+.Ar contest
+.Ar input
+.Nm make
+.Cm stress
+.Ar index
+.Ar contest
+.Ev GEN=path
+.Ev BRUTE=path
+.Op Ev N=count
+.Nm make
+.Cm fail
+.Ar index
+.Ar contest
+.Sh DESCRIPTION
+The test commands are for cases which are not yet worth putting in the
+main test set, and for cases which prove a program wrong.
+.Pp
+.Cm case
+writes the next numbered test case.
+With no file arguments it reads standard input and creates only
+.Pa case-N.in .
+With one file it copies that file as the input.
+With two files it copies input and expected output.
+.Pp
+.Cm probe
+compiles the solution and runs one input file.
+It saves the input as
+.Pa .build/stress/A.71/fail.in
+and the output as
+.Pa .build/stress/A.71/out.txt .
+The name is deliberate:
+the same saved input can later be promoted by
+.Cm fail .
+.Pp
+.Cm bench
+compiles once and runs the same input repeatedly.
+It reports the minimum, average, and maximum run time, and saves the
+first output.
+Set
+.Ev N
+to choose the number of runs.
+.Pp
+.Cm stress
+compiles three programs: the solution, a generator, and a brute force
+checker.
+The generator is run as
+.Bd -literal -offset indent
+gen SEED
+.Ed
+.Pp
+for each seed.
+Its output is fed to both programs.
+The first mismatch stops the run and leaves
+.Pa fail.in ,
+.Pa out.txt ,
+and
+.Pa ans.txt
+below
+.Pa .build/stress/A.71/ .
+.Pp
+.Cm fail
+copies the saved failed input into the permanent test directory.
+If an
+.Pa ans.txt
+file is present, it is copied as the expected output.
+.Sh ENVIRONMENT
+.Bl -tag -width "SHOW_BYTES"
+.It Ev N
+Number of benchmark runs or stress seeds.
+.It Ev GEN
+Path to a generator source file for
+.Cm stress .
+.It Ev BRUTE
+Path to a brute force source file for
+.Cm stress .
+.It Ev SEED
+First seed used by
+.Cm stress .
+The default is 1.
+.It Ev GENARGS
+Extra arguments appended after the seed.
+.It Ev TL
+Time limit in seconds for each program run.
+.It Ev GENTL
+Time limit in seconds for the generator.
+.It Ev SHOW_BYTES
+Maximum output size printed by
+.Cm probe .
+.It Ev CHECK
+If set to
+.Cm 1 ,
+compiles with the checked build.
+.El
+.Sh EXAMPLES
+.Bd -literal -offset indent
+make case A 71 < input.txt
+make case A 71 input.txt answer.txt
+make probe A 71 big.in
+make bench A 71 big.in N=5
+make stress A 71 GEN=stress/A.gen.cpp BRUTE=stress/A.brute.cpp N=10000
+make fail A 71
+.Ed
+.Sh SEE ALSO
+.Xr build 1 ,
+.Xr data 1 ,
+.Xr probs 7

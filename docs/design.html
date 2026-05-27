@@ -1,0 +1,378 @@
+
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>cf-probs Design Outline</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d75fae25" />
+    <link rel="stylesheet" type="text/css" href="_static/bizstyle.css?v=658d757c" />
+
+    <script src="_static/documentation_options.js?v=c368984b"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/bizstyle.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <!--[if lt IE 9]>
+    <script src="_static/css3-mediaqueries.js"></script>
+    <![endif]-->
+  </head><body>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="nav-item nav-item-0"><a href="#">cf-probs Design Outline</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">cf-probs Design Outline</a></li>
+      </ul>
+    </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+
+  <section id="cf-probs-design-outline">
+<h1>cf-probs Design Outline<a class="headerlink" href="#cf-probs-design-outline" title="Link to this heading">¶</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">cf-probs</span></code> is a local Codeforces workspace for C++20 solutions, sample tests,
+stress checks, cached reruns, and small command-line helpers.</p>
+<p>This document is a Sphinx copy of the <code class="docutils literal notranslate"><span class="pre">nobody</span></code> documentation template, adapted
+as a concise design outline for the <code class="docutils literal notranslate"><span class="pre">cf-probs</span></code> repository.</p>
+<div class="toctree-wrapper compound">
+<span id="document-introduction"></span><section id="introduction">
+<h2><span class="section-number">1. </span>Introduction<a class="headerlink" href="#introduction" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">cf-probs</span></code> keeps competitive-programming work in a predictable local shape.
+Each problem has one solution source under <code class="docutils literal notranslate"><span class="pre">solutions/</span></code> and one test directory
+under <code class="docutils literal notranslate"><span class="pre">tests/</span></code>.  Helper commands compile, run, check, bundle, stress, and
+query Codeforces data without requiring per-problem project setup.</p>
+<p>The repository is intentionally file-oriented.  Problem identities such as
+<code class="docutils literal notranslate"><span class="pre">A.71</span></code> map directly to <code class="docutils literal notranslate"><span class="pre">solutions/A.71.cpp</span></code> and <code class="docutils literal notranslate"><span class="pre">tests/A.71/</span></code>.  Cached
+build products and fetched Codeforces data stay under <code class="docutils literal notranslate"><span class="pre">.build/</span></code>.</p>
+<section id="workspace-goals">
+<h3><span class="section-number">1.1. </span>Workspace Goals<a class="headerlink" href="#workspace-goals" title="Link to this heading">¶</a></h3>
+<p>The workspace should:</p>
+<ul class="simple">
+<li><p>create a problem from a short identifier,</p></li>
+<li><p>keep solution and test filenames easy to predict,</p></li>
+<li><p>make fast reruns cheap after a first compile,</p></li>
+<li><p>support stricter checked builds when needed,</p></li>
+<li><p>bundle a single file for submission, and</p></li>
+<li><p>expose small commands that compose with the shell.</p></li>
+</ul>
+</section>
+<section id="current-surface">
+<h3><span class="section-number">1.2. </span>Current Surface<a class="headerlink" href="#current-surface" title="Link to this heading">¶</a></h3>
+<p>The primary entry point is the root <code class="docutils literal notranslate"><span class="pre">Makefile</span></code>.  It forwards to scripts under
+<code class="docutils literal notranslate"><span class="pre">bin/</span></code> for work such as <code class="docutils literal notranslate"><span class="pre">run</span></code>, <code class="docutils literal notranslate"><span class="pre">rerun</span></code>, <code class="docutils literal notranslate"><span class="pre">check</span></code>, <code class="docutils literal notranslate"><span class="pre">bundle</span></code>, <code class="docutils literal notranslate"><span class="pre">new</span></code>,
+<code class="docutils literal notranslate"><span class="pre">stress</span></code>, <code class="docutils literal notranslate"><span class="pre">probe</span></code>, <code class="docutils literal notranslate"><span class="pre">bench</span></code>, <code class="docutils literal notranslate"><span class="pre">case</span></code>, <code class="docutils literal notranslate"><span class="pre">fail</span></code>, <code class="docutils literal notranslate"><span class="pre">contest</span></code>, <code class="docutils literal notranslate"><span class="pre">sample</span></code>,
+and Codeforces metadata queries.</p>
+</section>
+<section id="guide-to-reading-this-document">
+<h3><span class="section-number">1.3. </span>Guide to Reading This Document<a class="headerlink" href="#guide-to-reading-this-document" title="Link to this heading">¶</a></h3>
+<p>This outline separates the design into four chapters.  The introduction states
+the workspace goals.  The workspace model defines the file and identifier
+contracts.  The workflow chapter describes normal problem iteration.  The
+tooling chapter records the support commands and external data boundaries.</p>
+</section>
+</section>
+<span id="document-preliminaries"></span><section id="workspace-model">
+<h2><span class="section-number">2. </span>Workspace Model<a class="headerlink" href="#workspace-model" title="Link to this heading">¶</a></h2>
+<p>The design uses a small vocabulary so that helpers, tests, and generated files
+can agree on paths.</p>
+<section id="problem-identifiers">
+<h3><span class="section-number">2.1. </span>Problem Identifiers<a class="headerlink" href="#problem-identifiers" title="Link to this heading">¶</a></h3>
+<p>A <em>problem</em> is named by a letter and contest number, for example <code class="docutils literal notranslate"><span class="pre">A.71</span></code>.  The
+same identifier is accepted by the make targets and helper scripts.  Some
+commands also accept compact Codeforces spellings such as <code class="docutils literal notranslate"><span class="pre">71A</span></code> where that is
+more natural for API lookup.</p>
+</section>
+<section id="solutions">
+<h3><span class="section-number">2.2. </span>Solutions<a class="headerlink" href="#solutions" title="Link to this heading">¶</a></h3>
+<p>A solution source lives at <code class="docutils literal notranslate"><span class="pre">solutions/&lt;problem&gt;.cpp</span></code>.  New files start from
+<code class="docutils literal notranslate"><span class="pre">template.cpp</span></code> and may include local helpers from <code class="docutils literal notranslate"><span class="pre">include/</span></code> while running
+locally.  <code class="docutils literal notranslate"><span class="pre">bundle</span></code> emits a submission-ready single source.</p>
+</section>
+<section id="tests">
+<h3><span class="section-number">2.3. </span>Tests<a class="headerlink" href="#tests" title="Link to this heading">¶</a></h3>
+<p>Sample and local tests live under <code class="docutils literal notranslate"><span class="pre">tests/&lt;problem&gt;/</span></code> as <code class="docutils literal notranslate"><span class="pre">case-N.in</span></code> and
+<code class="docutils literal notranslate"><span class="pre">case-N.out</span></code>.  The test naming is stable so failed inputs can be promoted from
+scratch runs into checked cases.</p>
+</section>
+<section id="build-cache">
+<h3><span class="section-number">2.4. </span>Build Cache<a class="headerlink" href="#build-cache" title="Link to this heading">¶</a></h3>
+<p>Compiled binaries, normalized outputs, timing files, stress failures, and
+Codeforces API caches belong under <code class="docutils literal notranslate"><span class="pre">.build/</span></code>.  The cache is disposable and is
+not part of the source contract.</p>
+<section id="manuals">
+<h4><span class="section-number">2.4.1. </span>Manuals<a class="headerlink" href="#manuals" title="Link to this heading">¶</a></h4>
+<p>Manual pages under <code class="docutils literal notranslate"><span class="pre">man/</span></code> are the terminal reference.  The Sphinx site gives a
+higher-level outline and should avoid duplicating every manpage detail.</p>
+</section>
+</section>
+</section>
+<span id="document-conceptual_design"></span><section id="problem-workflow">
+<h2><span class="section-number">3. </span>Problem Workflow<a class="headerlink" href="#problem-workflow" title="Link to this heading">¶</a></h2>
+<p>The workflow keeps the common path short while preserving stronger checks for
+hard cases.</p>
+<section id="creating-problems">
+<h3><span class="section-number">3.1. </span>Creating Problems<a class="headerlink" href="#creating-problems" title="Link to this heading">¶</a></h3>
+<p>New problem files are created from the root:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>new<span class="w"> </span>A<span class="w"> </span><span class="m">71</span>
+</pre></div>
+</div>
+<p>The helper creates the solution path and test directory using the repository’s
+normal naming rules.</p>
+</section>
+<section id="running-and-check">
+<h3><span class="section-number">3.2. </span>Running and Check<a class="headerlink" href="#running-and-check" title="Link to this heading">¶</a></h3>
+<p>Fast local runs use the default optimized build:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>run<span class="w"> </span>A<span class="w"> </span><span class="m">71</span>
+</pre></div>
+</div>
+<p>Checked runs use the slower diagnostics path:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>check<span class="w"> </span>A<span class="w"> </span><span class="m">71</span>
+</pre></div>
+</div>
+<p>The checked build enables stricter warnings, sanitizer support where available,
+libstdc++ debug mode, and local debug flags.</p>
+</section>
+<section id="cached-reruns">
+<h3><span class="section-number">3.3. </span>Cached Reruns<a class="headerlink" href="#cached-reruns" title="Link to this heading">¶</a></h3>
+<p>After binaries are built, <code class="docutils literal notranslate"><span class="pre">rerun</span></code> can run cached products without compiling:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>rerun<span class="w"> </span>all
+</pre></div>
+</div>
+<p>This is useful when checking many stored samples after a template or helper
+change.</p>
+</section>
+<section id="ad-hoc-iteration">
+<h3><span class="section-number">3.4. </span>Ad Hoc Iteration<a class="headerlink" href="#ad-hoc-iteration" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">probe</span></code> runs one arbitrary input without adding it to <code class="docutils literal notranslate"><span class="pre">tests/</span></code>.  <code class="docutils literal notranslate"><span class="pre">bench</span></code>
+runs the same input repeatedly and summarizes timing.  <code class="docutils literal notranslate"><span class="pre">case</span></code> records a new
+test case.  <code class="docutils literal notranslate"><span class="pre">stress</span></code> compares the solution against a brute-force checker and
+leaves failing artifacts under <code class="docutils literal notranslate"><span class="pre">.build/stress/&lt;problem&gt;/</span></code> for inspection.</p>
+</section>
+</section>
+<span id="document-supporting_design"></span><section id="tooling-and-integration">
+<h2><span class="section-number">4. </span>Tooling and Integration<a class="headerlink" href="#tooling-and-integration" title="Link to this heading">¶</a></h2>
+<p>The supporting tools keep contest setup, sample import, and submission output
+separate from the core compile-run loop.</p>
+<section id="script-shape">
+<h3><span class="section-number">4.1. </span>Script Shape<a class="headerlink" href="#script-shape" title="Link to this heading">¶</a></h3>
+<p>The root <code class="docutils literal notranslate"><span class="pre">Makefile</span></code> is a dispatcher.  The executable behavior lives in small
+scripts under <code class="docutils literal notranslate"><span class="pre">bin/</span></code> so commands can also be run directly when useful.</p>
+<p>The helper layer should preserve simple inputs and visible file outputs instead
+of hiding state in a database.</p>
+</section>
+<section id="codeforces-data">
+<h3><span class="section-number">4.2. </span>Codeforces Data<a class="headerlink" href="#codeforces-data" title="Link to this heading">¶</a></h3>
+<p>API-backed helpers cache fetched data under <code class="docutils literal notranslate"><span class="pre">.build/cf/</span></code>.  They support
+queries such as problem metadata, accepted submissions for a handle, local
+solution coverage, rating history, public contest setup, and upcoming contests.</p>
+</section>
+<section id="sample-import">
+<h3><span class="section-number">4.3. </span>Sample Import<a class="headerlink" href="#sample-import" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">sample</span></code> tries public online sample sources.  The official Codeforces API does
+not expose samples, so <code class="docutils literal notranslate"><span class="pre">cc</span></code> can listen for Competitive Companion packages on
+port 27121 and write received cases into the local test layout.</p>
+</section>
+<section id="submission-output">
+<h3><span class="section-number">4.4. </span>Submission Output<a class="headerlink" href="#submission-output" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">bundle</span></code> writes a single source file to standard output.  This keeps the
+submission step explicit and makes it easy to inspect exactly what will be sent
+to Codeforces.</p>
+</section>
+<section id="generated-artifacts">
+<h3><span class="section-number">4.5. </span>Generated Artifacts<a class="headerlink" href="#generated-artifacts" title="Link to this heading">¶</a></h3>
+<p>Generated binaries, timings, normalized outputs, API responses, stress failures,
+and fetched samples belong under <code class="docutils literal notranslate"><span class="pre">.build/</span></code> or <code class="docutils literal notranslate"><span class="pre">tests/</span></code> depending on whether
+they are disposable cache or durable test input.</p>
+</section>
+</section>
+</div>
+<div class="toctree-wrapper compound">
+<span id="document-appendices/glossary"></span><section id="glossary">
+<h2><span class="section-number">1. </span>Glossary<a class="headerlink" href="#glossary" title="Link to this heading">¶</a></h2>
+<dl class="simple glossary">
+<dt id="term-build-cache">build cache<a class="headerlink" href="#term-build-cache" title="Link to this term">¶</a></dt><dd><p>Disposable files under <code class="docutils literal notranslate"><span class="pre">.build/</span></code> created by compiles, runs, stress
+tests, and Codeforces data fetches.</p>
+</dd>
+<dt id="term-bundled-source">bundled source<a class="headerlink" href="#term-bundled-source" title="Link to this term">¶</a></dt><dd><p>The single C++ file emitted by <code class="docutils literal notranslate"><span class="pre">bundle</span></code> for submission.</p>
+</dd>
+<dt id="term-case">case<a class="headerlink" href="#term-case" title="Link to this term">¶</a></dt><dd><p>A numbered input/output pair under <code class="docutils literal notranslate"><span class="pre">tests/&lt;problem&gt;/</span></code>.</p>
+</dd>
+<dt id="term-checked-build">checked build<a class="headerlink" href="#term-checked-build" title="Link to this term">¶</a></dt><dd><p>A slower local build with stricter diagnostics and sanitizer support.</p>
+</dd>
+<dt id="term-problem-identifier">problem identifier<a class="headerlink" href="#term-problem-identifier" title="Link to this term">¶</a></dt><dd><p>The local spelling for a Codeforces problem, such as <code class="docutils literal notranslate"><span class="pre">A.71</span></code>.</p>
+</dd>
+<dt id="term-probe">probe<a class="headerlink" href="#term-probe" title="Link to this term">¶</a></dt><dd><p>An ad hoc run against one input that is not yet part of the durable test
+set.</p>
+</dd>
+</dl>
+</section>
+<span id="document-appendices/commands"></span><section id="command-summary">
+<h2><span class="section-number">2. </span>Command Summary<a class="headerlink" href="#command-summary" title="Link to this heading">¶</a></h2>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 76.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Command</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">new</span> <span class="pre">A</span> <span class="pre">71</span></code></p></td>
+<td><p>Create the solution and test directory for a problem.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">run</span> <span class="pre">A</span> <span class="pre">71</span></code></p></td>
+<td><p>Compile and run stored cases with the fast local build.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">check</span> <span class="pre">A</span> <span class="pre">71</span></code></p></td>
+<td><p>Run stored cases with stricter diagnostics.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">rerun</span> <span class="pre">all</span></code></p></td>
+<td><p>Reuse cached binaries without compiling.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">bundle</span> <span class="pre">A</span> <span class="pre">71</span></code></p></td>
+<td><p>Write a single submission source to standard output.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">probe</span> <span class="pre">A</span> <span class="pre">71</span> <span class="pre">input.txt</span></code></p></td>
+<td><p>Run one ad hoc input without adding a test case.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">bench</span> <span class="pre">A</span> <span class="pre">71</span> <span class="pre">input.txt</span> <span class="pre">N=5</span></code></p></td>
+<td><p>Run one input repeatedly and summarize timing.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">case</span> <span class="pre">A</span> <span class="pre">71</span></code></p></td>
+<td><p>Record the next numbered test case.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">stress</span> <span class="pre">A</span> <span class="pre">71</span> <span class="pre">GEN=...</span> <span class="pre">BRUTE=...</span></code></p></td>
+<td><p>Compare the solution against a brute-force checker.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">sample</span> <span class="pre">A</span> <span class="pre">71</span></code></p></td>
+<td><p>Try to fetch and store public samples.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">cc</span></code></p></td>
+<td><p>Listen for Competitive Companion sample packages.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">man</span></code></p></td>
+<td><p>Render the manual set.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<span id="document-appendices/files"></span><section id="file-contracts">
+<h2><span class="section-number">3. </span>File Contracts<a class="headerlink" href="#file-contracts" title="Link to this heading">¶</a></h2>
+<p>The source tree uses predictable paths:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">solutions/&lt;problem&gt;.cpp</span></code></dt><dd><p>The editable C++20 solution source.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">tests/&lt;problem&gt;/case-N.in</span></code></dt><dd><p>A durable input case.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">tests/&lt;problem&gt;/case-N.out</span></code></dt><dd><p>The expected output for the matching input case.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">template.cpp</span></code></dt><dd><p>The source copied for new problems.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">include/</span></code></dt><dd><p>Local C++ helpers available during local builds and bundling.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">bin/</span></code></dt><dd><p>Shell-facing helper commands.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">man/</span></code></dt><dd><p>Manual pages for terminal reference.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">.build/</span></code></dt><dd><p>Disposable binaries, outputs, timings, stress artifacts, and API caches.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">docs/</span></code></dt><dd><p>Sphinx source and rendered design documentation.</p>
+</dd>
+</dl>
+</section>
+<span id="document-appendices/roadmap"></span><section id="roadmap">
+<h2><span class="section-number">4. </span>Roadmap<a class="headerlink" href="#roadmap" title="Link to this heading">¶</a></h2>
+<p>Short-term work:</p>
+<ul class="simple">
+<li><p>keep helper names and file contracts stable,</p></li>
+<li><p>keep manual pages aligned with the implemented scripts,</p></li>
+<li><p>make failed stress inputs easy to promote into durable tests,</p></li>
+<li><p>keep fetched Codeforces data isolated under <code class="docutils literal notranslate"><span class="pre">.build/cf/</span></code>, and</p></li>
+<li><p>keep <code class="docutils literal notranslate"><span class="pre">bundle</span></code> output easy to inspect before submission.</p></li>
+</ul>
+<p>Longer-term work:</p>
+<ul class="simple">
+<li><p>improve contest bootstrap from public metadata,</p></li>
+<li><p>make sample import failures more explicit,</p></li>
+<li><p>add stronger checks for stale generated submissions,</p></li>
+<li><p>keep the Sphinx site high level while manpages stay command-specific, and</p></li>
+<li><p>avoid hiding workspace state behind non-file-backed indexes.</p></li>
+</ul>
+</section>
+</div>
+</section>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+  <div>
+    <h3><a href="#">Table of Contents</a></h3>
+    <ul>
+<li class="toctree-l1"><a class="reference internal" href="#document-introduction">1. Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#workspace-goals">1.1. Workspace Goals</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#current-surface">1.2. Current Surface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#guide-to-reading-this-document">1.3. Guide to Reading This Document</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#document-preliminaries">2. Workspace Model</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#problem-identifiers">2.1. Problem Identifiers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#solutions">2.2. Solutions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tests">2.3. Tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#build-cache">2.4. Build Cache</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#document-conceptual_design">3. Problem Workflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#creating-problems">3.1. Creating Problems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-and-check">3.2. Running and Check</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#cached-reruns">3.3. Cached Reruns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ad-hoc-iteration">3.4. Ad Hoc Iteration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#document-supporting_design">4. Tooling and Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#script-shape">4.1. Script Shape</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#codeforces-data">4.2. Codeforces Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#sample-import">4.3. Sample Import</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#submission-output">4.4. Submission Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#generated-artifacts">4.5. Generated Artifacts</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Appendices:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="#document-appendices/glossary">1. Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#document-appendices/commands">2. Command Summary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#document-appendices/files">3. File Contracts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#document-appendices/roadmap">4. Roadmap</a></li>
+</ul>
+
+  </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="nav-item nav-item-0"><a href="#">cf-probs Design Outline</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">cf-probs Design Outline</a></li>
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+    &#169; Copyright 2026, cf-probs contributors.
+      Last updated on May 27, 2026.
+      Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 7.4.7.
+    </div>
+  </body>
+</html>
