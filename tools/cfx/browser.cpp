@@ -1,5 +1,6 @@
 #include "browser.hpp"
 
+#include "assets.hpp"
 #include "browser_http.hpp"
 #include "codeforces.hpp"
 #include "json.hpp"
@@ -117,10 +118,10 @@ std::string configured_extension_identifier() {
         return configured;
     }
     const char* root = std::getenv("CFX_ROOT");
-    if (root == nullptr || *root == '\0') {
-        return {};
-    }
-    std::ifstream input(std::filesystem::path(root) / "browser" / "extension-id");
+    const std::filesystem::path fallback = root != nullptr && *root != '\0'
+                                               ? std::filesystem::path(root)
+                                               : std::filesystem::current_path();
+    std::ifstream input(asset_root(fallback) / "browser" / "extension-id");
     if (!input) {
         return {};
     }
@@ -327,6 +328,69 @@ BrowserCommand browser_command(std::string_view url) {
 enum class BridgeMode { fetch, submit };
 enum class Route { ready, submission, result, fetch, fetch_error };
 
+bool decimal(std::string_view value) {
+    return !value.empty() &&
+           std::all_of(value.begin(), value.end(), [](unsigned char character) {
+               return character >= '0' && character <= '9';
+           });
+}
+
+bool problem_index(std::string_view value) {
+    const auto letter = [](unsigned char character) {
+        return (character >= 'A' && character <= 'Z') ||
+               (character >= 'a' && character <= 'z');
+    };
+    return !value.empty() && letter(static_cast<unsigned char>(value.front())) &&
+           std::all_of(value.begin(), value.end(), [](unsigned char character) {
+               return (character >= '0' && character <= '9') ||
+                      (character >= 'A' && character <= 'Z') ||
+                      (character >= 'a' && character <= 'z');
+           });
+}
+
+std::vector<std::string_view> path_segments(std::string_view path) {
+    std::vector<std::string_view> result;
+    if (path.empty() || path.front() != '/') {
+        return result;
+    }
+    path.remove_prefix(1);
+    if (path.ends_with('/')) {
+        path.remove_suffix(1);
+    }
+    while (!path.empty()) {
+        const std::size_t slash = path.find('/');
+        const std::string_view segment = path.substr(0, slash);
+        if (segment.empty()) {
+            return {};
+        }
+        result.push_back(segment);
+        if (slash == std::string_view::npos) {
+            break;
+        }
+        path.remove_prefix(slash + 1);
+    }
+    return result;
+}
+
+bool allowed_page(std::string_view url, BridgeMode mode, std::string_view target) {
+    constexpr std::string_view origin = "https://codeforces.com";
+    if (!url.starts_with(origin) || url.find_first_of("?#\r\n\t") != std::string_view::npos) {
+        return false;
+    }
+    const std::vector<std::string_view> parts = path_segments(url.substr(origin.size()));
+    if (mode == BridgeMode::fetch) {
+        return parts.size() == 4 && problem_index(parts[3]) &&
+               ((parts[0] == "contest" && decimal(parts[1]) && parts[2] == "problem") ||
+                (parts[0] == "problemset" && parts[1] == "problem" && decimal(parts[2])));
+    }
+    if (parts.size() == 2 && parts[0] == "problemset" && parts[1] == "submit") {
+        return true;
+    }
+    const std::string contest = contest_id(target);
+    return parts.size() == 3 && parts[0] == "contest" && parts[1] == contest &&
+           parts[2] == "submit";
+}
+
 std::string_view route_name(Route route) {
     switch (route) {
     case Route::ready:
@@ -506,13 +570,22 @@ class Bridge {
 
   private:
     void validate() const {
-        if (page_url_.empty()) {
-            throw std::invalid_argument("browser page URL is empty");
-        }
         if (mode_ == BridgeMode::submit &&
             (request_.target.empty() || request_.index.empty() || request_.language.empty() ||
              request_.source.empty())) {
             throw std::invalid_argument("browser submission is incomplete");
+        }
+        if (mode_ == BridgeMode::submit) {
+            const std::string contest = contest_id(request_.target);
+            const std::string_view target_index =
+                std::string_view(request_.target).substr(contest.size());
+            if (!problem_index(target_index) || lower(std::string(target_index)) !=
+                                                    lower(request_.index)) {
+                throw std::invalid_argument("browser submission target is invalid");
+            }
+        }
+        if (!allowed_page(page_url_, mode_, request_.target)) {
+            throw std::invalid_argument("browser page URL is not an allowed Codeforces page");
         }
         if (request_.source.size() > options_.max_source_bytes) {
             throw std::invalid_argument("browser submission source is too large");

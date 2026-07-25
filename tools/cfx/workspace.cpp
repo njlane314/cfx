@@ -1,5 +1,6 @@
 #include "cfx/workspace.hpp"
 
+#include "cfx/assets.hpp"
 #include "cfx/file.hpp"
 
 #include <system_error>
@@ -25,7 +26,7 @@ fs::path select_template(const fs::path& root, const fs::path& requested_templat
     if (!requested_template.empty()) {
         return requested_template.is_absolute() ? requested_template : root / requested_template;
     }
-    const auto preferred = root / "templates" / "solution.cpp";
+    const auto preferred = asset_root(root) / "templates" / "solution.cpp";
     if (fs::is_regular_file(preferred)) {
         return preferred;
     }

@@ -67,14 +67,27 @@ std::string lower(std::string value) {
 
 std::string trim(std::string_view value) {
     std::size_t first = 0;
-    while (first < value.size() && std::isspace(static_cast<unsigned char>(value[first])) != 0) {
+    while (first < value.size() && (value[first] == ' ' || value[first] == '\t')) {
         ++first;
     }
     std::size_t last = value.size();
-    while (last > first && std::isspace(static_cast<unsigned char>(value[last - 1])) != 0) {
+    while (last > first && (value[last - 1] == ' ' || value[last - 1] == '\t')) {
         --last;
     }
     return std::string(value.substr(first, last - first));
+}
+
+bool token_character(unsigned char character) {
+    const bool alphanumeric = (character >= '0' && character <= '9') ||
+                              (character >= 'A' && character <= 'Z') ||
+                              (character >= 'a' && character <= 'z');
+    return alphanumeric ||
+           std::string_view("!#$%&'*+-.^_`|~").find(static_cast<char>(character)) !=
+               std::string_view::npos;
+}
+
+bool field_value_character(unsigned char character) {
+    return character == '\t' || (character >= 0x20U && character != 0x7fU);
 }
 
 std::string receive_some(int descriptor, const std::chrono::steady_clock::time_point& deadline) {
@@ -252,6 +265,13 @@ Request Connection::read(const std::chrono::steady_clock::time_point& deadline,
     request.method = std::string(request_line.substr(0, first_space));
     request.target =
         std::string(request_line.substr(first_space + 1, second_space - first_space - 1));
+    if (!std::all_of(request.method.begin(), request.method.end(), token_character) ||
+        request.target.empty() || request.target.front() != '/' ||
+        !std::all_of(request.target.begin(), request.target.end(), [](unsigned char character) {
+            return character >= 0x21U && character != 0x7fU;
+        })) {
+        throw Error(400, "invalid request line");
+    }
 
     std::size_t line_start = request_line_end + 2;
     while (line_start < separator) {
@@ -264,9 +284,17 @@ Request Connection::read(const std::chrono::steady_clock::time_point& deadline,
         if (colon == std::string_view::npos) {
             throw Error(400, "invalid request header");
         }
-        const std::string name = lower(trim(line.substr(0, colon)));
-        const std::string value = trim(line.substr(colon + 1));
-        if (name.empty() || request.headers.contains(name)) {
+        const std::string_view raw_name = line.substr(0, colon);
+        if (raw_name.empty() || !std::all_of(raw_name.begin(), raw_name.end(), token_character)) {
+            throw Error(400, "invalid request header name");
+        }
+        const std::string_view raw_value = line.substr(colon + 1);
+        if (!std::all_of(raw_value.begin(), raw_value.end(), field_value_character)) {
+            throw Error(400, "invalid request header value");
+        }
+        const std::string name = lower(std::string(raw_name));
+        const std::string value = trim(raw_value);
+        if (request.headers.contains(name)) {
             throw Error(400, "invalid duplicate request header");
         }
         request.headers.emplace(name, value);
@@ -289,6 +317,9 @@ Request Connection::read(const std::chrono::steady_clock::time_point& deadline,
         if (input.size() - body_start > maximum_body) {
             throw Error(413, "request body too large");
         }
+    }
+    if (input.size() - body_start != length) {
+        throw Error(400, "unexpected bytes after request body");
     }
     request.body.assign(input.data() + body_start, length);
     return request;

@@ -1,14 +1,18 @@
+#include "cfx/assets.hpp"
 #include "cfx/bundle.hpp"
 #include "cfx/file.hpp"
 #include "cfx/problem.hpp"
 #include "cfx/workspace.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <unistd.h>
 
 namespace {
@@ -34,6 +38,30 @@ class TemporaryDirectory {
 
   private:
     fs::path path_;
+};
+
+class ScopedEnvironment {
+  public:
+    ScopedEnvironment(std::string name, const std::string& value) : name_(std::move(name)) {
+        if (const char* previous = std::getenv(name_.c_str()); previous != nullptr) {
+            previous_ = previous;
+        }
+        if (::setenv(name_.c_str(), value.c_str(), 1) != 0) {
+            throw std::runtime_error("test could not set " + name_);
+        }
+    }
+
+    ~ScopedEnvironment() {
+        if (previous_) {
+            (void)::setenv(name_.c_str(), previous_->c_str(), 1);
+        } else {
+            (void)::unsetenv(name_.c_str());
+        }
+    }
+
+  private:
+    std::string name_;
+    std::optional<std::string> previous_;
 };
 
 void write(const fs::path& path, const std::string& contents) {
@@ -165,6 +193,35 @@ void test_workspace_creation_is_idempotent() {
     require(read(second.solution) == "// keep me\n", "existing solution not overwritten");
 }
 
+void test_separate_asset_root() {
+    TemporaryDirectory workspace;
+    TemporaryDirectory assets;
+    const ScopedEnvironment environment("CFX_ASSET_ROOT", assets.path().string());
+
+    write(assets.path() / "templates" / "solution.cpp", "// installed template\n");
+    write(assets.path() / "include" / "cp" / "value.hpp",
+          "#pragma once\nconstexpr int value = 7;\n");
+
+    const auto problem = cfx::Problem::parse("71A", workspace.path());
+    const auto created = cfx::Workspace(workspace.path()).create(problem);
+    require(read(created.solution) == "// installed template\n",
+            "workspace uses template from separate asset root");
+    require(cfx::asset_root(workspace.path()) == fs::weakly_canonical(assets.path()),
+            "configured asset root resolves independently");
+
+    write(workspace.path() / "solution.cpp",
+          "#include \"cp/value.hpp\"\nint main() { return value; }\n");
+    const std::string installed = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
+    require(installed.find("value = 7") != std::string::npos,
+            "bundle resolves installed library header");
+
+    write(workspace.path() / "include" / "cp" / "value.hpp",
+          "#pragma once\nconstexpr int value = 8;\n");
+    const std::string local = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
+    require(local.find("value = 8") != std::string::npos,
+            "workspace library header overrides installed asset");
+}
+
 void test_file_operations() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
@@ -275,6 +332,7 @@ int main() {
         test_problem_parsing();
         test_problem_paths_and_inference();
         test_workspace_creation_is_idempotent();
+        test_separate_asset_root();
         test_file_operations();
         test_current_problem_record();
         test_nested_and_repeated_bundling();

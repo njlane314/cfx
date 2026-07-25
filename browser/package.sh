@@ -11,6 +11,10 @@ if ! command -v zip >/dev/null 2>&1; then
     echo "browser package: zip is required" >&2
     exit 1
 fi
+if ! command -v node >/dev/null 2>&1; then
+    echo "browser package: node is required to generate the extension icons" >&2
+    exit 1
+fi
 
 version=$(
     sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest"
@@ -106,14 +110,17 @@ cp "$manifest" \
     "$script_dir/submission.js" \
     "$script_dir/connector.js" \
     "$stage/"
-for size in 16 32 48 128; do
-    icon=$script_dir/icons/icon-$size.png
-    if [[ ! -f $icon ]]; then
-        echo "browser package: missing $icon" >&2
-        exit 1
-    fi
-    cp "$icon" "$stage/icons/"
-done
+node "$script_dir/icon.js" "$stage/icons" >/dev/null
+node - "$stage/manifest.json" <<'NODE'
+const fs = require("node:fs");
+
+const path = process.argv[2];
+const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
+manifest.icons = Object.fromEntries(
+    [16, 32, 48, 128].map((size) => [size, `icons/icon-${size}.png`])
+);
+fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+NODE
 
 rm -f "$archive"
 (

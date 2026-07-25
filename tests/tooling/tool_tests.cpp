@@ -519,6 +519,34 @@ void test_submission_preparation(const fs::path& root) {
                  "submission rejects a metadata-driven time-limit failure");
 }
 
+void test_browser_page_validation() {
+    cfx::BrowserBridgeOptions options;
+    options.extension_id = "abcdefghijklmnopabcdefghijklmnop";
+    check_throws(
+        [&] {
+            (void)cfx::fetch_problem_in_browser("https://example.com/contest/71/problem/A",
+                                                options);
+        },
+        "browser bridge must reject a foreign fetch page");
+    check_throws(
+        [&] {
+            (void)cfx::fetch_problem_in_browser(
+                "https://codeforces.com.evil.example/contest/71/problem/A", options);
+        },
+        "browser bridge must reject an origin-prefix lookalike");
+    check_throws(
+        [&] {
+            (void)cfx::submit_in_browser(cfx::BrowserSubmitRequest{
+                "https://codeforces.com/contest/72/submit",
+                "71A",
+                "A",
+                "GNU C++20",
+                "int main() {}\n",
+            }, options);
+        },
+        "browser bridge must reject a mismatched contest submission page");
+}
+
 void test_browser_submission_states() {
     if (std::getenv("CFX_TEST_BROWSER_LOG") == nullptr ||
         std::getenv("CFX_TEST_SUBMISSION_PAYLOAD") == nullptr) {
@@ -665,6 +693,7 @@ int main(int argc, char** argv) {
         test_companion_import(temporary.path() / "companion");
         test_problem_limits_and_verdicts(temporary.path() / "verdicts");
         test_submission_preparation(temporary.path() / "submission");
+        test_browser_page_validation();
         test_browser_submission_states();
         std::cout << "tool integration tests passed\n";
         return 0;

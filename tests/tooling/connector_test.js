@@ -31,6 +31,15 @@ function apiRecord(id, {
   };
 }
 
+function apiResponse(result) {
+  const text = JSON.stringify({status: "OK", result});
+  return {
+    ok: true,
+    headers: {get(name) { return name === "content-length" ? String(text.length) : null; }},
+    async text() { return text; }
+  };
+}
+
 function formDocument(onSubmit = () => {}, signedOut = false) {
   const problem = {value: "", dispatchEvent() {}};
   const language = {
@@ -117,11 +126,12 @@ async function submitFlowTest() {
     document,
     location,
     clock,
-    async fetch(url) {
+    async fetch(url, options) {
       const parsed = new URL(url);
       assert.equal(parsed.pathname, "/api/contest.status");
       assert.equal(parsed.searchParams.get("handle"), "panicsort");
-      return {ok: true, async json() { return {status: "OK", result: [apiRecord(111)]}; }};
+      assert.equal(options.redirect, "error");
+      return apiResponse([apiRecord(111)]);
     },
     async sendMessage(message) {
       messages.push(message);
@@ -175,7 +185,7 @@ async function resumeFlowTest(polls, expected, options = {}) {
       const value = polls[poll++];
       if (value instanceof Error) throw value;
       assert.ok(value, "unexpected Codeforces API poll");
-      return {ok: true, async json() { return {status: "OK", result: value}; }};
+      return apiResponse(value);
     },
     async sendMessage(message) {
       messages.push(message);
@@ -202,6 +212,14 @@ async function main() {
     action: "submit", port: 32123, token
   });
   assert.throws(() => parseRequest("cfx=submit&port=0&token=x"), /port/);
+  assert.throws(
+    () => parseRequest(`cfx=submit&cfx=fetch&port=32123&token=${token}`),
+    /invalid connector cfx/
+  );
+  assert.throws(
+    () => parseRequest(`cfx=submit&port=32123&token=${token}&extra=1`),
+    /unknown connector parameter/
+  );
   assert.equal(samples.parseTimeLimit("1.25 seconds"), 1250);
   assert.equal(samples.parseMemoryLimit("262144 kilobytes"), 256);
   assert.equal(samples.renderedSample({innerText: "1\r\n2\r"}), "1\n2\n");
@@ -216,10 +234,28 @@ async function main() {
   };
   assert.equal(submission.loggedInHandle(handleDocument, "https://codeforces.com"), "panicsort");
   assert.throws(() => submission.loggedInHandle({
+    querySelectorAll() { return [{href: "https://example.com/profile/panicsort"}]; }
+  }, "https://codeforces.com"), /not signed in/);
+  assert.throws(() => submission.loggedInHandle({
     querySelectorAll() {
       return [{href: "/profile/one"}, {href: "/profile/two"}];
     }
   }, "https://codeforces.com"), /determine/);
+
+  const badActionDocument = formDocument();
+  badActionDocument.forms[0].getAttribute = name =>
+    name === "action" ? "/settings/general" : null;
+  assert.throws(() => submission.prepareForm(
+    artifact, badActionDocument, locationFor("/problemset/submit"), class Event {}
+  ), /unexpected target/);
+  const badSubmitterDocument = formDocument();
+  const badSubmitter = badSubmitterDocument.forms[0].querySelector(
+    'button[type="submit"], input[type="submit"]'
+  );
+  badSubmitter.getAttribute = name => name === "formaction" ? "/settings/general" : null;
+  assert.throws(() => submission.prepareForm(
+    artifact, badSubmitterDocument, locationFor("/problemset/submit"), class Event {}
+  ), /unexpected target/);
 
   const pending = {
     target: "71A",
@@ -246,6 +282,27 @@ async function main() {
   assert.throws(
     () => submission.identifySubmission([apiRecord(555), apiRecord(556)], pending, 25000),
     /ambiguous/
+  );
+  await assert.rejects(
+    submission.recentSubmissions(async url => ({
+      ok: true,
+      redirected: true,
+      url: url.replace("codeforces.com", "example.com"),
+      async json() { return {status: "OK", result: []}; }
+    }), "71A", "panicsort", "https://codeforces.com"),
+    /redirected unexpectedly/
+  );
+  await assert.rejects(
+    submission.recentSubmissions(async () => ({
+      ok: true,
+      headers: {get: () => String(256 * 1024 + 1)},
+      async text() { throw new Error("oversized body must not be read"); }
+    }), "71A", "panicsort", "https://codeforces.com"),
+    /response is too large/
+  );
+  assert.throws(
+    () => submission.apiRecords({status: "OK", result: Array(101).fill({})}),
+    /invalid data/
   );
 
   await submitFlowTest();

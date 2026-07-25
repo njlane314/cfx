@@ -5,6 +5,8 @@ CFX := ./bin/cfx
 CFX_PATH := $(abspath $(CFX))
 TEST_RUNNER := tests/run.sh
 TEST_SCRIPTS := $(shell find tests -type f -name '*.sh' -print)
+RELEASE_SCRIPTS := $(shell find scripts/release -type f -name '*.sh' -print)
+BROWSER_SCRIPTS := $(shell find browser -type f -name '*.sh' -print)
 
 ifeq ($(origin CXX),default)
 ifneq ($(wildcard /opt/homebrew/opt/llvm/bin/clang++),)
@@ -29,13 +31,14 @@ TOOL_CXXFLAGS := -std=$(CFX_STD) -Wall -Wextra -Wpedantic -pthread
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test lint verify browser-package install clean FORCE
+.PHONY: help build test lint release-check verify browser-package install clean FORCE
 
 help:
 	@echo 'Development:'
 	@echo '  make build        build the C++ command-line tool'
 	@echo '  make test         run library and tooling tests'
 	@echo '  make lint         check scripts and CLI startup'
+	@echo '  make release-check  verify distributable packaging'
 	@echo '  make verify       run all checks'
 	@echo '  make browser-package  build the Chrome Web Store ZIP'
 	@echo
@@ -80,14 +83,17 @@ test: build
 	bash $(TEST_RUNNER)
 
 lint:
-	bash -n $(CFX) $(TEST_SCRIPTS) browser/package.sh
+	bash -n $(CFX) $(TEST_SCRIPTS) $(RELEASE_SCRIPTS) $(BROWSER_SCRIPTS)
 	@if command -v node >/dev/null 2>&1; then \
 		for script in browser/*.js; do node --check "$$script"; done; \
 		node -e 'JSON.parse(require("node:fs").readFileSync("browser/manifest.json", "utf8"))'; \
 	fi
 	$(CFX) --help >/dev/null
 
-verify: test lint
+release-check: build
+	bash scripts/release/test.sh
+
+verify: test lint release-check
 
 browser-package:
 	bash browser/package.sh

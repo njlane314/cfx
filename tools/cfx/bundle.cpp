@@ -1,5 +1,7 @@
 #include "cfx/bundle.hpp"
 
+#include "cfx/assets.hpp"
+
 #include <algorithm>
 #include <fstream>
 #include <regex>
@@ -52,7 +54,7 @@ std::string display_path(const fs::path& path, const fs::path& root) {
 
 class BundleRun {
   public:
-    explicit BundleRun(fs::path root) : root_(std::move(root)) {}
+    explicit BundleRun(fs::path root) : root_(std::move(root)), assets_(asset_root(root_)) {}
 
     std::string run(const fs::path& source) {
         const auto canonical = canonical_file(source, "source");
@@ -65,6 +67,7 @@ class BundleRun {
         const std::vector<fs::path> candidates = {
             directory / include,
             root_ / "include" / include,
+            assets_ / "include" / include,
             root_ / include,
         };
         std::vector<std::string> searched;
@@ -140,6 +143,7 @@ class BundleRun {
     }
 
     fs::path root_;
+    fs::path assets_;
     std::unordered_set<fs::path> seen_;
     std::vector<fs::path> stack_;
 };

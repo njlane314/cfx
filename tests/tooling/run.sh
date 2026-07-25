@@ -27,6 +27,7 @@ cfx_std=${CFX_STD:-c++20}
 if command -v node >/dev/null 2>&1; then
     node "$script_dir/background_test.js"
     node "$script_dir/connector_test.js"
+    node "$script_dir/browser_package_test.js"
 fi
 
 common_flags=(
@@ -44,6 +45,7 @@ common_flags=(
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
     "$script_dir/core_tests.cpp" \
+    "$repo_root/tools/cfx/assets.cpp" \
     "$repo_root/tools/cfx/problem.cpp" \
     "$repo_root/tools/cfx/workspace.cpp" \
     "$repo_root/tools/cfx/bundle.cpp" \

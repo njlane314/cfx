@@ -1,16 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "cfx connector",
-  "version": "0.1.5",
+  "name": "cfx — Codeforces workflow connector",
+  "version": "0.2.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1384K7uuubMrxhEghKJokx5vZ8z/DsHCKeTWmcfLgxLImcdab8vG2pT8kZXWegkB2bPT9/+WMf6GqIEjHrO42MNERoyvmK/rDbTdmAJTb9k3bGVHKPp4pG6gIXbTKC2aoPVtTvB4wH05ZftVGQ3st3zZYWps0NyVHMoZnwJXs5GpQ+1/3ySvyKhe8qEG0zeT+Bq18CulSl6bC42iLiIx2afJb46MXBSpJ0gmH18ajGJgMJPdBAE4i11oE8tkre6x7SLOTS9PLOkZcDLM5weDONOptP3ffeYPuYLoA+f9TiD4OHzzEdxhAU+kG/Nth/AdqUzcNH8lki8OMCwPFlfn0wIDAQAB",
-  "description": "Moves Codeforces samples and submissions through the local cfx workbench.",
+  "description": "The small, auditable, two-command Codeforces workflow: fetch samples, test locally, and submit exact C++ source.",
   "homepage_url": "https://github.com/njlane314/cfx",
-  "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
-  },
   "background": {
     "service_worker": "background.js"
   },

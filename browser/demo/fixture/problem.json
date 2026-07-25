@@ -1,0 +1,12 @@
+{
+  "name": "Way Too Long Words",
+  "url": "https://codeforces.com/contest/71/problem/A",
+  "timeLimit": 1000,
+  "memoryLimit": 256,
+  "tests": [
+    {
+      "input": "4\nword\nlocalization\ninternationalization\npneumonoultramicroscopicsilicovolcanoconiosis\n",
+      "output": "word\nl10n\ni18n\np43s\n"
+    }
+  ]
+}

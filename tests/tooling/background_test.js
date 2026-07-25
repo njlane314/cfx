@@ -105,9 +105,35 @@ async function main() {
   assert.deepEqual(accepted, {ok: true, status: 200, body: "{\"ok\":true}"});
   assert.equal(requests[0].url, `http://127.0.0.1:32123/fetch/${"a".repeat(64)}`);
   assert.equal(requests[0].options.credentials, "omit");
+  assert.equal(requests[0].options.redirect, "error");
   assert.equal(requests[0].options.body, local.body);
   assert.equal(requests[0].options.headers["Content-Type"], "application/json");
   assert.equal(requests[0].options.headers["X-Cfx-Extension"], chrome.runtime.id);
+
+  const requestCount = requests.length;
+  const wrongMethod = await send({...local, route: "ready", method: "POST", body: "{}"});
+  assert.equal(wrongMethod.ok, false);
+  assert.match(wrongMethod.error, /method for route/);
+  assert.equal(requests.length, requestCount);
+  const largeError = await send({...local, route: "fetch-error", body: "x".repeat(65537)});
+  assert.equal(largeError.ok, false);
+  assert.match(largeError.error, /too large/);
+  assert.equal(requests.length, requestCount);
+
+  await assert.rejects(
+    background.limitedResponseBody({headers: {get: () => "65537"}}, 65536),
+    /too large/
+  );
+  let cancelled = false;
+  const chunks = [new Uint8Array(40000), new Uint8Array(40000)];
+  await assert.rejects(background.limitedResponseBody({
+    headers: {get: () => null},
+    body: {getReader() { return {
+      async read() { return chunks.length ? {done: false, value: chunks.shift()} : {done: true}; },
+      async cancel() { cancelled = true; }
+    }; }}
+  }, 65536), /too large/);
+  assert.equal(cancelled, true);
 
   const operationA = "a".repeat(64);
   const operationB = "b".repeat(64);

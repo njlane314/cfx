@@ -1,13 +1,15 @@
 (function(root, factory) {
   "use strict";
 
-  const api = factory(root.chrome, root.fetch, root.TextEncoder, root.AbortController);
+  const api = factory(
+    root.chrome, root.fetch, root.TextEncoder, root.TextDecoder, root.AbortController
+  );
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   } else {
     api.listen();
   }
-})(globalThis, (chrome, fetch, TextEncoder, AbortController) => {
+})(globalThis, (chrome, fetch, TextEncoder, TextDecoder, AbortController) => {
   "use strict";
 
   const localMessage = "cfx-local-request";
@@ -15,8 +17,15 @@
   const statePrefix = "cfx:submission:";
   const alarmPrefix = "cfx:expire:";
   const stateLifetime = 60000;
-  const routes = new Set(["ready", "submission", "fetch", "fetch-error", "result"]);
   const maximumBytes = 16 * 1024 * 1024;
+  const smallBody = 64 * 1024;
+  const routes = new Map([
+    ["ready", {method: "GET", requestBytes: 0, responseBytes: smallBody}],
+    ["submission", {method: "GET", requestBytes: 0, responseBytes: maximumBytes}],
+    ["fetch", {method: "POST", requestBytes: maximumBytes, responseBytes: smallBody}],
+    ["fetch-error", {method: "POST", requestBytes: smallBody, responseBytes: smallBody}],
+    ["result", {method: "POST", requestBytes: smallBody, responseBytes: smallBody}]
+  ]);
   let stateQueue = Promise.resolve();
 
   function messageOf(error) {
@@ -68,12 +77,42 @@
     if (typeof route !== "string" || !routes.has(route)) {
       throw new Error("invalid connector route");
     }
-    if (method !== "GET" && method !== "POST") throw new Error("invalid connector method");
-    if (typeof body !== "string" || new TextEncoder().encode(body).length > maximumBytes) {
+    const policy = routes.get(route);
+    if (method !== policy.method) throw new Error("invalid connector method for route");
+    if (typeof body !== "string" || new TextEncoder().encode(body).length > policy.requestBytes) {
       throw new Error("connector request is too large");
     }
-    if (method === "GET" && body) throw new Error("GET connector request has a body");
-    return {port, token, route, method, body};
+    return {...policy, port, token, route, body};
+  }
+
+  async function limitedResponseBody(response, maximum) {
+    const declared = response.headers?.get?.("content-length");
+    if (declared != null && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) {
+      throw new Error("local workbench response is too large");
+    }
+    if (!response.body?.getReader) {
+      const value = await response.text();
+      if (new TextEncoder().encode(value).length > maximum) {
+        throw new Error("local workbench response is too large");
+      }
+      return value;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8", {fatal: true});
+    let bytes = 0;
+    let value = "";
+    while (true) {
+      const {done, value: chunk} = await reader.read();
+      if (done) break;
+      bytes += chunk.byteLength;
+      if (bytes > maximum) {
+        await reader.cancel();
+        throw new Error("local workbench response is too large");
+      }
+      value += decoder.decode(chunk, {stream: true});
+    }
+    return value + decoder.decode();
   }
 
   async function localRequest(message, sender) {
@@ -82,8 +121,10 @@
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
+      const url =
+        `http://127.0.0.1:${request.port}/${request.route}/${encodeURIComponent(request.token)}`;
       const response = await fetch(
-        `http://127.0.0.1:${request.port}/${request.route}/${encodeURIComponent(request.token)}`,
+        url,
         {
           method: request.method,
           headers: {
@@ -93,14 +134,12 @@
           body: request.method === "POST" ? request.body : undefined,
           cache: "no-store",
           credentials: "omit",
+          redirect: "error",
           referrerPolicy: "no-referrer",
           signal: controller.signal
         }
       );
-      const body = await response.text();
-      if (new TextEncoder().encode(body).length > maximumBytes) {
-        throw new Error("local workbench response is too large");
-      }
+      const body = await limitedResponseBody(response, request.responseBytes);
       return {status: response.status, body};
     } finally {
       clearTimeout(timeout);
@@ -235,6 +274,7 @@
     codeforcesPage,
     expireState,
     listen,
+    limitedResponseBody,
     localRequest,
     stateIdle: () => stateQueue,
     stateKey,

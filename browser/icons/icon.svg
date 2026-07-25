@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Chrome Web Store icons use a 96 px mark inside the 128 px canvas. -->
-  <rect x="16" y="16" width="96" height="96" rx="22" fill="#182033"/>
-  <path d="M37 44 55 64 37 84" fill="none" stroke="#f7f9fc"
-        stroke-linecap="round" stroke-linejoin="round" stroke-width="10"/>
-  <path d="M65 83h27" fill="none" stroke="#50c878"
-        stroke-linecap="round" stroke-width="10"/>
-</svg>

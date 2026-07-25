@@ -24,6 +24,7 @@ fi
 export CXX=$compiler
 export CFX_STD=${CFX_STD:-c++20}
 export CFX_ROOT=$root
+export CFX_ASSET_ROOT=$root
 
 make --no-print-directory -s -C "$root" build
 exec "$root/.build/tools/cfx" "$@"

@@ -44,7 +44,9 @@
 
   function profileHandle(link, origin) {
     try {
-      const match = new URL(link.href, origin).pathname.match(/^\/profile\/([^/]+)\/?$/i);
+      const url = new URL(link.href, origin);
+      if (url.origin !== origin || url.username || url.password) return "";
+      const match = url.pathname.match(/^\/profile\/([^/]+)\/?$/i);
       return match ? decodeURIComponent(match[1]) : "";
     } catch {
       return "";
@@ -58,7 +60,7 @@
     const handles = new Map();
     for (const link of links) {
       const handle = profileHandle(link, origin);
-      if (/^[A-Za-z0-9_.-]+$/.test(handle)) handles.set(handle.toLowerCase(), handle);
+      if (/^[A-Za-z0-9_.-]{1,64}$/.test(handle)) handles.set(handle.toLowerCase(), handle);
     }
     if (handles.size !== 1) {
       throw new Error(
@@ -132,6 +134,9 @@
 
   function prepareForm(artifact, document, location, EventClass) {
     validateArtifact(artifact);
+    if (location.origin !== "https://codeforces.com") {
+      throw new Error("submission page is not on Codeforces");
+    }
     const contest = location.pathname.match(/^\/contest\/([0-9]+)\/submit\/?$/i);
     const problemset = /^\/problemset\/submit\/?$/i.test(location.pathname);
     if (!contest && !problemset) throw new Error(pageError(document, location));
@@ -150,6 +155,35 @@
         : "Codeforces submission form is unavailable; reload Codeforces, then rerun cfx submit");
     }
 
+    const expectedPath = contest ? `/contest/${contest[1]}/submit` : "/problemset/submit";
+    const validAction = value => {
+      const url = new URL(value || `${location.pathname}${location.search}`, location.origin);
+      if (
+        url.origin !== location.origin || url.username || url.password || url.hash ||
+        url.pathname.replace(/\/$/, "") !== expectedPath
+      ) {
+        throw new Error("Codeforces submission form has an unexpected target");
+      }
+    };
+    validAction(form.getAttribute("action"));
+    if ((form.method || "get").toLowerCase() !== "post") {
+      throw new Error("Codeforces submission form has an unexpected method");
+    }
+    const submitter = form.querySelector('button[type="submit"], input[type="submit"]');
+    const submitAction = submitter?.getAttribute?.("formaction");
+    if (submitAction) validAction(submitAction);
+    const submitMethod = submitter?.getAttribute?.("formmethod");
+    if (submitMethod && submitMethod.toLowerCase() !== "post") {
+      throw new Error("Codeforces submit control has an unexpected method");
+    }
+    const csrf = form.querySelector('[name="csrf_token"]');
+    const action = new URL(
+      form.getAttribute("action") || `${location.pathname}${location.search}`, location.origin
+    );
+    if (!String(csrf?.value || "").trim() && !action.searchParams.get("csrf_token")) {
+      throw new Error("Codeforces submission form has no CSRF token; reload and sign in");
+    }
+
     const problem = form.querySelector(`[name="${problemField}"]`);
     const language = form.querySelector('[name="programTypeId"]');
     const source = form.querySelector('[name="source"]');
@@ -161,19 +195,7 @@
     selectLanguage(language, artifact.language, EventClass);
     source.value = artifact.source;
     dispatchChange(source, EventClass);
-
-    const action = new URL(
-      form.getAttribute("action") || `${location.pathname}${location.search}`,
-      location.origin
-    );
-    if (action.origin !== location.origin || (form.method || "get").toLowerCase() !== "post") {
-      throw new Error("Codeforces submission form has an unexpected target");
-    }
-    const csrf = form.querySelector('[name="csrf_token"]');
-    if (!String(csrf?.value || "").trim() && !action.searchParams.get("csrf_token")) {
-      throw new Error("Codeforces submission form has no CSRF token; reload and sign in");
-    }
-    return {form, submitter: form.querySelector('button[type="submit"], input[type="submit"]')};
+    return {form, submitter};
   }
 
   async function waitForChallenge(form, delay, now) {
@@ -190,11 +212,53 @@
   }
 
   function apiRecords(payload) {
-    if (!payload || payload.status !== "OK" || !Array.isArray(payload.result)) {
+    if (
+      !payload || payload.status !== "OK" || !Array.isArray(payload.result) ||
+      payload.result.length > 100
+    ) {
       const comment = String(payload?.comment || "").replace(/\s+/g, " ").trim();
       throw new Error(comment ? `Codeforces API: ${comment}` : "Codeforces API returned invalid data");
     }
     return payload.result;
+  }
+
+  async function boundedJson(response, maximumBytes = 256 * 1024) {
+    const declared = response.headers?.get?.("content-length");
+    if (declared != null && (!/^[0-9]+$/.test(declared) || Number(declared) > maximumBytes)) {
+      throw new Error("Codeforces API response is too large");
+    }
+
+    const reader = response.body?.getReader?.();
+    let text = "";
+    if (reader) {
+      const decoder = new TextDecoder("utf-8", {fatal: true});
+      let bytes = 0;
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > maximumBytes) {
+          await reader.cancel();
+          throw new Error("Codeforces API response is too large");
+        }
+        text += decoder.decode(value, {stream: true});
+      }
+      text += decoder.decode();
+    } else {
+      if (typeof response.text !== "function") {
+        throw new Error("Codeforces API response body is unavailable");
+      }
+      text = await response.text();
+      if (new TextEncoder().encode(text).length > maximumBytes) {
+        throw new Error("Codeforces API response is too large");
+      }
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("Codeforces API returned invalid JSON");
+    }
   }
 
   function statusUrl(target, handle, origin) {
@@ -208,14 +272,18 @@
   }
 
   async function recentSubmissions(fetch, target, handle, origin) {
-    const response = await fetch(statusUrl(target, handle, origin), {
+    const url = statusUrl(target, handle, origin);
+    const response = await fetch(url, {
       credentials: "omit",
       cache: "no-store",
-      redirect: "follow",
+      redirect: "error",
       referrerPolicy: "no-referrer"
     });
+    if (response.redirected || (response.url && response.url !== url)) {
+      throw new Error("Codeforces API redirected unexpectedly");
+    }
     if (!response.ok) throw new Error(`Codeforces API returned HTTP ${response.status}`);
-    return apiRecords(await response.json());
+    return apiRecords(await boundedJson(response));
   }
 
   function submissionIds(records) {
@@ -286,6 +354,7 @@
 
   return {
     apiRecords,
+    boundedJson,
     formError,
     identifySubmission,
     loggedInHandle,

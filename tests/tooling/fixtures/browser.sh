@@ -154,6 +154,8 @@ check_contract() {
     local site='Sec-Fetch-Site: none'
     local json='Content-Type: application/json'
     local result
+    result=$(raw_status "GET /ready/$token HTTP/1.1\r\n$host\r\nX-Cfx-Extension : $extension_id\r\n$site\r\n\r\n")
+    [[ $result == 400 ]] || { echo "invalid header name returned HTTP $result, expected 400" >&2; exit 1; }
     result=$(raw_status "GET /ready/$token HTTP/1.1\r\n$host\r\n$auth\r\n$site\r\nContent-Length: 1\r\n\r\n")
     [[ $result == 400 ]] || { echo "GET body returned HTTP $result, expected 400" >&2; exit 1; }
     result=$(raw_status "POST /$post_route/$token HTTP/1.1\r\n$host\r\n$auth\r\n$site\r\n$json\r\n\r\n")

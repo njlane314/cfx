@@ -18,6 +18,13 @@
 
   function parseRequest(rawFragment) {
     const parameters = new URLSearchParams(rawFragment);
+    const allowed = new Set(["cfx", "port", "token"]);
+    for (const [name] of parameters) {
+      if (!allowed.has(name)) throw new Error("unknown connector parameter");
+    }
+    for (const name of allowed) {
+      if (parameters.getAll(name).length !== 1) throw new Error(`invalid connector ${name}`);
+    }
     const action = parameters.get("cfx");
     const port = parameters.get("port") || "";
     const token = parameters.get("token") || "";
