@@ -27,6 +27,6 @@ Use of information is limited to the connector's user-facing purpose and
 complies with the Chrome Web Store User Data Policy, including its Limited Use
 requirements.
 
-Questions or deletion requests can be filed in the repository's issue tracker.
-Local files can be deleted directly by the user; this project holds no
-server-side copy.
+Questions or deletion requests can be filed in the
+[cfx issue tracker](https://github.com/njlane314/cfx/issues). Local files can
+be deleted directly by the user; this project holds no server-side copy.

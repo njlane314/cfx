@@ -20,8 +20,8 @@ The resulting `.build/browser/cfx-connector-<version>.zip` has
 - [ ] 1280 x 800 screenshot: `browser/store/screenshot-1280x800.png`.
 - [ ] 440 x 280 small promo tile: `browser/store/promo-small-440x280.png`.
 - [ ] Privacy policy URL:
-  `<repository-url>/blob/main/browser/PRIVACY.md`.
-- [ ] Website URL: `<repository-url>`.
+  `https://github.com/njlane314/cfx/blob/main/browser/PRIVACY.md`.
+- [ ] Website URL: `https://github.com/njlane314/cfx`.
 - [ ] Data-use disclosures and permission justifications match the copy below.
 - [ ] Reviewer instructions are included and the final ZIP has been tested with
   **Load unpacked**.
@@ -90,7 +90,7 @@ remote code.
 
 Privacy policy URL:
 
-> <repository-url>/blob/main/browser/PRIVACY.md
+> https://github.com/njlane314/cfx/blob/main/browser/PRIVACY.md
 
 Remote code:
 
