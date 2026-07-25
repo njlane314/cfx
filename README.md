@@ -1,8 +1,11 @@
 # cfx
 
+[![Build](https://github.com/njlane314/cfx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/njlane314/cfx/actions/workflows/ci.yml)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C)
+
 `cfx` — prepare, test, and submit Codeforces solutions.
 
-## SYNOPSIS
+## Usage
 
 ```sh
 cfx 71A
@@ -10,12 +13,12 @@ cfx 71A
 cfx submit
 ```
 
-The first command fetches the problem and samples, creates a workspace, opens
-`$EDITOR`, and remembers the problem. The second runs every saved sample and
-case, checked-compiles the exact bundled source, submits it through Chrome, and
-waits for the verdict.
+`cfx 71A` fetches the problem and samples, creates a workspace, opens
+`solution.cpp` in your editor, and remembers the problem. `cfx submit` runs
+every saved sample and case, checked-compiles the exact bundled source, submits
+it through Chrome, and waits for the verdict.
 
-## INSTALL
+## Install
 
 Requires Bash, a C++20 compiler, `make`, `curl`, and Chrome.
 
@@ -23,10 +26,9 @@ Requires Bash, a C++20 compiler, `make`, `curl`, and Chrome.
 make install
 ```
 
-This installs `cfx` in `~/.local/bin`. Set `PREFIX` to choose another prefix
-and ensure its `bin` directory is on `PATH`.
+This installs `cfx` in `~/.local/bin`.
 
-## CHROME
+## Chrome setup
 
 Install the local connector once:
 
@@ -41,7 +43,7 @@ cookies remain in Chrome; `cfx` never stores them.
 Without the connector, `cfx submit` copies the tested bundle and opens the
 submission page. Use `cfx submit --manual` to request that path directly.
 
-## LIBRARY
+## Library
 
 The solution template contains only stream setup and `solve()`. Reusable,
 header-only components live under `include/cp/` and are included selectively:
@@ -53,7 +55,7 @@ header-only components live under `include/cp/` and are included selectively:
 Each header is self-contained and uses the `cp` namespace. `cfx bundle` expands
 local headers into submission-ready source.
 
-## DEVELOPMENT
+## Checks
 
 ```sh
 make verify
