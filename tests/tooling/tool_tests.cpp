@@ -1,3 +1,4 @@
+#include "cfprobs/browser.hpp"
 #include "cfprobs/codeforces.hpp"
 #include "cfprobs/companion.hpp"
 #include "cfprobs/compiler.hpp"
@@ -8,6 +9,7 @@
 #include "cfprobs/submission.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -106,6 +108,15 @@ void test_process_and_normalization(const fs::path& root) {
                                                                std::nullopt,
                                                            });
     check(timeout.timed_out && timeout.status == 124, "process timeout");
+
+    const auto detached_started = std::chrono::steady_clock::now();
+    cfprobs::launch_detached_process({"/bin/sh", "-c", "sleep 1"});
+    const auto detached_elapsed = std::chrono::steady_clock::now() - detached_started;
+    check(detached_elapsed < std::chrono::milliseconds(500),
+          "detached process returns without waiting for completion");
+    check_throws(
+        [] { cfprobs::launch_detached_process({"/definitely/missing/cfprobs-command"}); },
+        "detached process reports exec failure");
 }
 
 void test_build_cache(const fs::path& root) {
@@ -188,8 +199,8 @@ void test_submission_preparation(const fs::path& root) {
     check(artifact.source_text == read(artifact.source), "submission carries the pinned source");
     check(artifact.target == "88A", "submission target");
     check(artifact.language == "GNU C++20", "submission language");
-    check(artifact.page_url == "https://codeforces.com/contest/88/submit",
-          "submission uses the canonical contest page");
+    check(artifact.page_url == "https://codeforces.com/problemset/submit",
+          "submission uses the archive problemset page");
     check(artifact.source_hash.size() == 32, "submission hash");
     check(artifact.source_hash == cfprobs::content_digest(artifact.source_text),
           "submission hash matches pinned source");
@@ -203,6 +214,69 @@ void test_submission_preparation(const fs::path& root) {
                  "submission requires at least one complete test pair");
 }
 
+void test_browser_submission_states() {
+    if (std::getenv("CFPROBS_TEST_BROWSER_LOG") == nullptr ||
+        std::getenv("CFPROBS_TEST_SUBMISSION_PAYLOAD") == nullptr) {
+        return;
+    }
+
+    cfprobs::BrowserBridgeOptions options;
+    options.request_timeout = std::chrono::milliseconds(500);
+    options.connect_timeout = std::chrono::milliseconds(1000);
+    options.wait_timeout = std::chrono::milliseconds(1500);
+    options.extension_id = "abcdefghijklmnopabcdefghijklmnop";
+    const cfprobs::BrowserSubmitRequest request{
+        "https://codeforces.com/problemset/submit",
+        "99993C",
+        "C",
+        "GNU C++20",
+        "int main() {}\n",
+    };
+
+    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "ready-only", 1);
+    bool unavailable = false;
+    try {
+        (void)cfprobs::submit_in_browser(request, options);
+    } catch (const cfprobs::BrowserConnectorUnavailable&) {
+        unavailable = true;
+    }
+    check(unavailable, "ready without a source request is safe to fall back");
+
+    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "pre-submit-error", 1);
+    bool sign_in_required = false;
+    try {
+        (void)cfprobs::submit_in_browser(request, options);
+    } catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        sign_in_required = message.find("Codeforces submission failed") != std::string::npos &&
+                           message.find("not signed in") != std::string::npos;
+    }
+    check(sign_in_required, "known sign-in failure is reported before source is requested");
+
+    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "source-only", 1);
+    bool source_unknown = false;
+    try {
+        (void)cfprobs::submit_in_browser(request, options);
+    } catch (const cfprobs::BrowserConnectorUnavailable&) {
+        check(false, "served source must never trigger automatic fallback");
+    } catch (const std::runtime_error& error) {
+        source_unknown = std::string(error.what()).find("status is unknown") != std::string::npos;
+    }
+    check(source_unknown, "missing result after serving source has unknown status");
+
+    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "unknown-result", 1);
+    bool reported_unknown = false;
+    try {
+        (void)cfprobs::submit_in_browser(request, options);
+    } catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        reported_unknown = message.find("submission status is unknown") != std::string::npos &&
+                           message.find("Codeforces submission failed") == std::string::npos;
+    }
+    ::unsetenv("CFPROBS_TEST_CONNECTOR_MODE");
+    check(reported_unknown, "uncertain browser result is not reported as a safe rejection");
+}
+
 } // namespace
 
 int main() {
@@ -213,6 +287,7 @@ int main() {
         test_build_cache(temporary.path() / "build");
         test_companion_import(temporary.path() / "companion");
         test_submission_preparation(temporary.path() / "submission");
+        test_browser_submission_states();
         std::cout << "tool integration tests passed\n";
         return 0;
     } catch (const std::exception& error) {

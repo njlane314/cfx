@@ -78,11 +78,15 @@ and --verbose.
 Listen for Competitive Companion JSON and store fetched samples separately
 from handwritten cases. Existing differing pairs require --force.
 )"},
-    {"submit", R"(usage: probs submit [--rebuild] [PROBLEM]
+    {"submit", R"(usage: probs submit [--manual] [--rebuild] [PROBLEM]
 
 Run saved tests, create and checked-compile the final bundle, then submit it
 through the installed browser connector and the browser's authenticated
-Codeforces session. No password or cookie is read or stored by probs.
+Codeforces session. If Chrome has no connector, fall back to copying the exact
+tested source and opening the submission page. --manual selects that fallback
+directly. With no PROBLEM, use the current workspace or the most recent problem
+opened by `probs PROBLEM`; conflicting targets require an explicit ID. No
+password or cookie is read or stored by probs.
 )"},
     {"fail", R"(usage: probs fail [PROBLEM]
 
@@ -158,6 +162,33 @@ Problem resolve_problem(const std::vector<std::string>& values, const fs::path& 
         return Problem::parse(values[0], values[1], root);
     }
     throw std::runtime_error("expected at most one problem ID");
+}
+
+Problem resolve_submission_problem(const std::vector<std::string>& values,
+                                   const fs::path& root) {
+    if (!values.empty()) {
+        return resolve_problem(values, root);
+    }
+    const std::optional<Problem> inferred = Problem::infer(fs::current_path(), root);
+    const std::optional<Problem> remembered = cfprobs::current_problem(root);
+    if (inferred && remembered && inferred->id() != remembered->id()) {
+        throw std::runtime_error("submission target is ambiguous: current directory is " +
+                                 inferred->id() + " but current problem is " + remembered->id() +
+                                 "; pass an ID such as `probs submit " + remembered->id() + "`");
+    }
+    if (inferred) {
+        return *inferred;
+    }
+    if (remembered) {
+        if (!fs::is_regular_file(remembered->solution_path())) {
+            throw std::runtime_error("current problem " + remembered->id() +
+                                     " has no solution; run probs " + remembered->id() +
+                                     " again");
+        }
+        return *remembered;
+    }
+    throw std::runtime_error(
+        "cannot determine which problem to submit; run probs 71A or pass a problem ID");
 }
 
 fs::path resolve_path(const fs::path& value) {
@@ -264,6 +295,7 @@ int command_problem(const std::vector<std::string>& values, const fs::path& root
                                  problem.id());
     }
     const cfprobs::ImportResult imported = cfprobs::import_companion_package(package, root, true);
+    cfprobs::remember_current_problem(problem, root);
 
     std::cout << "Fetched " << problem.id();
     if (!package.name.empty()) {
@@ -445,6 +477,7 @@ int command_cc(Arguments arguments, const fs::path& root) {
 
 int command_submit(Arguments arguments, const fs::path& root) {
     bool rebuild = false;
+    bool manual = false;
     std::vector<std::string> positional;
     while (!arguments.empty()) {
         const std::string argument = arguments.take();
@@ -454,6 +487,8 @@ int command_submit(Arguments arguments, const fs::path& root) {
         }
         if (argument == "--rebuild") {
             rebuild = true;
+        } else if (argument == "--manual") {
+            manual = true;
         } else if (argument.starts_with("-")) {
             throw std::runtime_error("submit: unknown option " + argument);
         } else {
@@ -461,18 +496,38 @@ int command_submit(Arguments arguments, const fs::path& root) {
         }
     }
 
-    const Problem problem = resolve_problem(positional, root);
+    const Problem problem = resolve_submission_problem(positional, root);
     const cfprobs::SubmissionArtifact artifact =
         cfprobs::prepare_submission(root, problem, rebuild);
     std::cout << "Checked build passed\n";
-    const cfprobs::BrowserSubmitReceipt receipt =
-        cfprobs::submit_in_browser(cfprobs::BrowserSubmitRequest{
+
+    const auto prepare_manual = [&] {
+        cfprobs::copy_submission_to_clipboard(artifact);
+        std::cout << "Copied tested bundle " << artifact.source_hash.substr(0, 16)
+                  << " to the clipboard\n";
+        cfprobs::open_browser_url(artifact.page_url);
+        std::cout << "Opened Codeforces submission page for " << artifact.target << '\n'
+                  << "Paste and submit as " << artifact.language << '\n';
+    };
+    if (manual) {
+        prepare_manual();
+        return 0;
+    }
+
+    cfprobs::BrowserSubmitReceipt receipt;
+    try {
+        receipt = cfprobs::submit_in_browser(cfprobs::BrowserSubmitRequest{
             artifact.page_url,
             artifact.target,
             problem.index(),
             artifact.language,
             artifact.source_text,
         });
+    } catch (const cfprobs::BrowserConnectorUnavailable&) {
+        std::cout << "Chrome connector unavailable; using manual submission\n";
+        prepare_manual();
+        return 0;
+    }
     std::cout << "Submitted " << artifact.target << " as " << artifact.language << '\n'
               << receipt.submission_url << '\n';
     if (!receipt.verdict.empty() && receipt.verdict != "submitted") {

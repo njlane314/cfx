@@ -5,10 +5,15 @@
 #include "hash.hpp"
 #include "judge.hpp"
 #include "problem.hpp"
+#include "process.hpp"
 
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
+#include <unistd.h>
+#include <vector>
 
 namespace cfprobs {
 namespace {
@@ -45,6 +50,72 @@ std::string language_name(std::string standard) {
     return standard;
 }
 
+#ifndef __APPLE__
+bool environment_set(const char* name) {
+    const char* value = std::getenv(name);
+    return value != nullptr && *value != '\0';
+}
+
+bool executable(std::string_view name) {
+    if (name.empty()) {
+        return false;
+    }
+    if (name.find('/') != std::string_view::npos) {
+        return ::access(std::string(name).c_str(), X_OK) == 0;
+    }
+    const char* path_environment = std::getenv("PATH");
+    const std::string_view path = path_environment == nullptr ? std::string_view() : path_environment;
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        const std::size_t separator = path.find(':', start);
+        const std::string_view directory =
+            path.substr(start, separator == std::string_view::npos ? path.size() - start
+                                                                   : separator - start);
+        const fs::path candidate =
+            (directory.empty() ? fs::current_path() : fs::path(directory)) / name;
+        if (::access(candidate.c_str(), X_OK) == 0) {
+            return true;
+        }
+        if (separator == std::string_view::npos) {
+            break;
+        }
+        start = separator + 1;
+    }
+    return false;
+}
+#endif
+
+std::vector<std::string> clipboard_command() {
+    if (const char* configured = std::getenv("CFPROBS_CLIPBOARD");
+        configured != nullptr && *configured != '\0') {
+        std::vector<std::string> command = split_command_words(configured);
+        if (command.empty()) {
+            throw std::runtime_error("CFPROBS_CLIPBOARD is empty");
+        }
+        return command;
+    }
+#ifdef __APPLE__
+    return {"pbcopy"};
+#else
+    const bool wayland = environment_set("WAYLAND_DISPLAY");
+    const bool x11 = environment_set("DISPLAY");
+    if (wayland && executable("wl-copy")) {
+        return {"wl-copy"};
+    }
+    if (x11 && executable("xclip")) {
+        return {"xclip", "-selection", "clipboard"};
+    }
+    if (x11 && executable("xsel")) {
+        return {"xsel", "--clipboard", "--input"};
+    }
+    if (!wayland && !x11 && executable("wl-copy")) {
+        return {"wl-copy"};
+    }
+    throw std::runtime_error(
+        "no clipboard command found; install wl-clipboard, xclip, or xsel");
+#endif
+}
+
 } // namespace
 
 SubmissionArtifact prepare_submission(const fs::path& root, const Problem& problem, bool rebuild) {
@@ -78,6 +149,20 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
         language_name(configured_standard()),
         submission_url(problem),
     };
+}
+
+void copy_submission_to_clipboard(const SubmissionArtifact& artifact) {
+    const ProcessResult result =
+        run_process(clipboard_command(), ProcessOptions{
+                                             artifact.source,
+                                             std::nullopt,
+                                             std::nullopt,
+                                             std::chrono::seconds(10),
+                                             std::nullopt,
+                                         });
+    if (result.status != 0) {
+        throw std::runtime_error("cannot copy the tested bundle to the clipboard");
+    }
 }
 
 } // namespace cfprobs

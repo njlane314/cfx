@@ -25,7 +25,24 @@ build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfprobs-tests.XXXXXX")
 build_dir=$(cd "$build_dir" && pwd -P)
 trap 'rm -rf "$build_dir"' EXIT
 
+wait_for_log() {
+    local pattern=$1
+    local path=$2
+    local attempts=0
+    while ! grep -q "$pattern" "$path" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if ((attempts >= 100)); then
+            echo "tooling test failed: browser log never contained $pattern" >&2
+            return 1
+        fi
+        sleep 0.02
+    done
+}
+
 bash "$script_dir/library/run.sh"
+if command -v node >/dev/null 2>&1; then
+    node "$script_dir/tooling/background_test.js"
+fi
 
 common_flags=(
     -std=c++20
@@ -59,7 +76,11 @@ done
     "$script_dir/tooling/tool_tests.cpp" \
     "${tool_sources[@]}" \
     -o "$build_dir/tool-tests"
-"$build_dir/tool-tests"
+CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+CFPROBS_TEST_BROWSER_LOG="$build_dir/tool-browser.log" \
+CFPROBS_TEST_SUBMISSION_PAYLOAD="$build_dir/tool-submission.json" \
+CFPROBS_CHROME_EXTENSION_ID=abcdefghijklmnopabcdefghijklmnop \
+    "$build_dir/tool-tests"
 
 sandbox=$build_dir/workspace
 mkdir -p "$sandbox/templates" "$sandbox/include"
@@ -69,6 +90,9 @@ cp -R "$repo_root/include/cp" "$sandbox/include/cp"
 browser_log=$build_dir/browser.log
 editor_log=$build_dir/editor.log
 submission_payload=$build_dir/submission.json
+clipboard_payload=$build_dir/clipboard.cpp
+test_extension_id=abcdefghijklmnopabcdefghijklmnop
+export CFPROBS_CHROME_EXTENSION_ID=$test_extension_id
 start_output=$(
     CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
     CFPROBS_TEST_BROWSER_LOG="$browser_log" \
@@ -87,6 +111,7 @@ test -f "$bridge_problem_dir/samples/01.in"
 test -f "$bridge_problem_dir/samples/02.out"
 grep -q "$bridge_problem_dir/solution.cpp" "$editor_log"
 grep -q '^fetch$' "$browser_log"
+grep -qx '99993C' "$sandbox/.build/current-problem"
 
 cp "$script_dir/tooling/fixtures/sum.cpp" "$bridge_problem_dir/solution.cpp"
 cp "$script_dir/tooling/fixtures/10.in" "$bridge_problem_dir/samples/01.in"
@@ -101,7 +126,7 @@ cmp "$script_dir/tooling/fixtures/sum.cpp" "$bridge_problem_dir/solution.cpp"
 cmp "$script_dir/tooling/fixtures/02.in" "$bridge_problem_dir/samples/01.in"
 
 submit_output=$(
-    cd "$bridge_problem_dir"
+    cd "$sandbox"
     CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
     CFPROBS_TEST_BROWSER_LOG="$browser_log" \
     CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
@@ -119,6 +144,55 @@ grep -q '"source":' "$submission_payload"
 grep -q '#include' "$submission_payload"
 grep -q '^submit$' "$browser_log"
 
+"$repo_root/bin/probs" --root "$sandbox" get 99992A >/dev/null
+conflict_problem_dir=$sandbox/problems/cf/99992/A
+: >"$browser_log"
+if conflict_output=$(
+    cd "$conflict_problem_dir"
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+        "$repo_root/bin/probs" --root "$sandbox" submit 2>&1
+); then
+    echo "tooling test failed: submit accepted conflicting current problems" >&2
+    exit 1
+fi
+grep -q 'submission target is ambiguous: current directory is 99992A but current problem is 99993C' \
+    <<<"$conflict_output"
+test ! -s "$browser_log"
+
+: >"$browser_log"
+manual_output=$(
+    cd "$conflict_problem_dir"
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_CLIPBOARD="$script_dir/tooling/fixtures/clipboard.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+    CFPROBS_TEST_CLIPBOARD="$clipboard_payload" \
+        "$repo_root/bin/probs" --root "$sandbox" submit --manual 99993C
+)
+grep -q '2/2 tests passed' <<<"$manual_output"
+grep -q 'Checked build passed' <<<"$manual_output"
+grep -q 'Copied tested bundle .* to the clipboard' <<<"$manual_output"
+grep -q 'Opened Codeforces submission page for 99993C' <<<"$manual_output"
+grep -q 'Paste and submit as GNU C++20' <<<"$manual_output"
+wait_for_log '^manual$' "$browser_log"
+submission_artifact=$(find "$sandbox/.build/submissions" -name '99993C-*.cpp' -print -quit)
+cmp "$submission_artifact" "$clipboard_payload"
+
+: >"$browser_log"
+fallback_output=$(
+    cd "$bridge_problem_dir"
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_CLIPBOARD="$script_dir/tooling/fixtures/clipboard.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+    CFPROBS_TEST_CLIPBOARD="$clipboard_payload" \
+    CFPROBS_TEST_SKIP_CONNECTOR=1 \
+        "$repo_root/bin/probs" --root "$sandbox" submit
+)
+grep -q 'Chrome connector unavailable; using manual submission' <<<"$fallback_output"
+grep -q 'Copied tested bundle .* to the clipboard' <<<"$fallback_output"
+grep -q '^unavailable$' "$browser_log"
+wait_for_log '^manual$' "$browser_log"
+
 : >"$browser_log"
 cp "$script_dir/tooling/fixtures/wrong.cpp" "$bridge_problem_dir/solution.cpp"
 if (
@@ -132,6 +206,20 @@ if (
     echo "tooling test failed: submit accepted a failing solution" >&2
     exit 1
 fi
+test ! -s "$browser_log"
+
+printf '99990A\n' >"$sandbox/.build/current-problem"
+: >"$browser_log"
+if stale_output=$(
+    cd "$sandbox"
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+        "$repo_root/bin/probs" --root "$sandbox" submit 2>&1
+); then
+    echo "tooling test failed: submit accepted a stale current problem" >&2
+    exit 1
+fi
+grep -q 'current problem 99990A has no solution' <<<"$stale_output"
 test ! -s "$browser_log"
 
 "$repo_root/bin/probs" --root "$sandbox" get 99991A |

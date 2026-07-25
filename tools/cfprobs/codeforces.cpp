@@ -69,8 +69,8 @@ std::string problem_url(const Problem& problem) {
     return "https://codeforces.com/contest/" + problem.contest_id() + "/problem/" + problem.index();
 }
 
-std::string submission_url(const Problem& problem) {
-    return "https://codeforces.com/contest/" + problem.contest_id() + "/submit";
+std::string submission_url(const Problem&) {
+    return "https://codeforces.com/problemset/submit";
 }
 
 } // namespace cfprobs

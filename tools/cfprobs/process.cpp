@@ -59,6 +59,58 @@ void wait_for_pid(pid_t pid, int& wait_status) {
     }
 }
 
+void set_close_on_exec(int descriptor) {
+    const int flags = ::fcntl(descriptor, F_GETFD);
+    if (flags < 0 || ::fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) < 0) {
+        throw std::runtime_error("fcntl failed: " + std::string(std::strerror(errno)));
+    }
+}
+
+void move_above_standard_streams(int& descriptor) {
+    if (descriptor > STDERR_FILENO) {
+        return;
+    }
+    const int moved = ::fcntl(descriptor, F_DUPFD, STDERR_FILENO + 1);
+    if (moved < 0) {
+        throw std::runtime_error("fcntl failed: " + std::string(std::strerror(errno)));
+    }
+    ::close(descriptor);
+    descriptor = moved;
+}
+
+[[noreturn]] void report_launch_error(int descriptor, int error) {
+    const char* data = reinterpret_cast<const char*>(&error);
+    std::size_t written = 0;
+    while (written < sizeof(error)) {
+        const ssize_t count = ::write(descriptor, data + written, sizeof(error) - written);
+        if (count > 0) {
+            written += static_cast<std::size_t>(count);
+        } else if (count < 0 && errno == EINTR) {
+            continue;
+        } else {
+            break;
+        }
+    }
+    _exit(127);
+}
+
+void redirect_standard_streams(int error_descriptor) {
+    const int null_descriptor = ::open("/dev/null", O_RDWR);
+    if (null_descriptor < 0) {
+        report_launch_error(error_descriptor, errno);
+    }
+    for (int target = STDIN_FILENO; target <= STDERR_FILENO; ++target) {
+        if (::dup2(null_descriptor, target) < 0) {
+            const int error = errno;
+            ::close(null_descriptor);
+            report_launch_error(error_descriptor, error);
+        }
+    }
+    if (null_descriptor > STDERR_FILENO) {
+        ::close(null_descriptor);
+    }
+}
+
 } // namespace
 
 ProcessResult run_process(const std::vector<std::string>& arguments,
@@ -123,6 +175,90 @@ ProcessResult run_process(const std::vector<std::string>& arguments,
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
                                                               started),
     };
+}
+
+void launch_detached_process(const std::vector<std::string>& arguments) {
+    if (arguments.empty()) {
+        throw std::invalid_argument("cannot launch an empty command");
+    }
+    std::vector<char*> argv = exec_arguments(arguments);
+
+    int errors[2]{};
+    if (::pipe(errors) != 0) {
+        throw std::runtime_error("pipe failed: " + std::string(std::strerror(errno)));
+    }
+    try {
+        move_above_standard_streams(errors[0]);
+        move_above_standard_streams(errors[1]);
+        set_close_on_exec(errors[1]);
+    } catch (...) {
+        ::close(errors[0]);
+        ::close(errors[1]);
+        throw;
+    }
+
+    const pid_t child = ::fork();
+    if (child < 0) {
+        const int error = errno;
+        ::close(errors[0]);
+        ::close(errors[1]);
+        throw std::runtime_error("fork failed: " + std::string(std::strerror(error)));
+    }
+    if (child == 0) {
+        ::close(errors[0]);
+        if (::setsid() < 0) {
+            report_launch_error(errors[1], errno);
+        }
+        const pid_t detached = ::fork();
+        if (detached < 0) {
+            report_launch_error(errors[1], errno);
+        }
+        if (detached > 0) {
+            ::close(errors[1]);
+            _exit(0);
+        }
+
+        redirect_standard_streams(errors[1]);
+        ::execvp(argv.front(), argv.data());
+        report_launch_error(errors[1], errno);
+    }
+
+    ::close(errors[1]);
+    int wait_status = 0;
+    try {
+        wait_for_pid(child, wait_status);
+    } catch (...) {
+        ::close(errors[0]);
+        throw;
+    }
+
+    int launch_error = 0;
+    std::size_t received = 0;
+    while (received < sizeof(launch_error)) {
+        const ssize_t count = ::read(errors[0], reinterpret_cast<char*>(&launch_error) + received,
+                                     sizeof(launch_error) - received);
+        if (count > 0) {
+            received += static_cast<std::size_t>(count);
+        } else if (count == 0) {
+            break;
+        } else if (errno != EINTR) {
+            const int error = errno;
+            ::close(errors[0]);
+            throw std::runtime_error("read failed: " + std::string(std::strerror(error)));
+        }
+    }
+    ::close(errors[0]);
+
+    if (received != 0) {
+        if (received != sizeof(launch_error)) {
+            throw std::runtime_error("detached process failed before launch");
+        }
+        throw std::runtime_error("cannot execute " + arguments.front() + ": " +
+                                 std::strerror(launch_error));
+    }
+    if (!WIFEXITED(wait_status) || WEXITSTATUS(wait_status) != 0) {
+        throw std::runtime_error("detached process failed before launch");
+    }
 }
 
 CaptureResult capture_process(const std::vector<std::string>& arguments) {

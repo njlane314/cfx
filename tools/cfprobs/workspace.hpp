@@ -3,6 +3,7 @@
 #include "cfprobs/problem.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 
 namespace cfprobs {
@@ -30,5 +31,14 @@ class Workspace {
   private:
     std::filesystem::path root_;
 };
+
+// Store the problem selected by `probs PROBLEM` as disposable workspace state.
+void remember_current_problem(
+    const Problem& problem,
+    const std::filesystem::path& root = std::filesystem::current_path());
+
+// Return the last selected problem, or no value when none has been recorded.
+[[nodiscard]] std::optional<Problem> current_problem(
+    const std::filesystem::path& root = std::filesystem::current_path());
 
 } // namespace cfprobs

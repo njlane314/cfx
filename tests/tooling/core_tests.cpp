@@ -65,6 +65,17 @@ template <class Function> void require_bundle_error(Function&& function, std::st
     throw std::runtime_error("expected BundleError");
 }
 
+template <class Function> void require_workspace_error(Function&& function, std::string_view text) {
+    try {
+        function();
+    } catch (const cfprobs::WorkspaceError& error) {
+        require(std::string(error.what()).find(text) != std::string::npos,
+                "workspace error did not mention " + std::string(text));
+        return;
+    }
+    throw std::runtime_error("expected WorkspaceError");
+}
+
 void test_problem_parsing() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
@@ -145,6 +156,35 @@ void test_workspace_migrates_legacy_source_without_shadowing() {
             "legacy regression cases remain visible after migration");
 }
 
+void test_current_problem_record() {
+    TemporaryDirectory temporary;
+    const auto& root = temporary.path();
+
+    require(!cfprobs::current_problem(root), "current problem initially absent");
+
+    const auto first = cfprobs::Problem::parse("2227A", root);
+    cfprobs::remember_current_problem(first, root);
+    require(read(root / ".build" / "current-problem") == "2227A\n",
+            "current problem stored as a small canonical record");
+    require(cfprobs::current_problem(root)->id() == "2227A", "current problem restored");
+
+    const auto second = cfprobs::Problem::parse("71A", root);
+    cfprobs::remember_current_problem(second, root);
+    require(cfprobs::current_problem(root)->id() == "71A", "current problem replaced");
+
+    write(root / ".build" / "current-problem", "not a problem\n");
+    require_workspace_error([&] { static_cast<void>(cfprobs::current_problem(root)); },
+                            "run probs PROBLEM again");
+
+    write(root / ".build" / "current-problem", "71a\n");
+    require_workspace_error([&] { static_cast<void>(cfprobs::current_problem(root)); },
+                            "run probs PROBLEM again");
+
+    write(root / ".build" / "current-problem", std::string(65, '1'));
+    require_workspace_error([&] { static_cast<void>(cfprobs::current_problem(root)); },
+                            "run probs PROBLEM again");
+}
+
 void test_nested_and_repeated_bundling() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
@@ -200,6 +240,7 @@ int main() {
         test_problem_paths_and_fallback();
         test_workspace_creation_is_idempotent();
         test_workspace_migrates_legacy_source_without_shadowing();
+        test_current_problem_record();
         test_nested_and_repeated_bundling();
         test_include_root_and_errors();
     } catch (const std::exception& error) {

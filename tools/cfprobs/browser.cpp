@@ -12,7 +12,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fcntl.h>
+#include <fstream>
 #include <map>
 #include <netinet/in.h>
 #include <poll.h>
@@ -163,22 +165,44 @@ bool constant_time_equal(std::string_view left, std::string_view right) {
 }
 
 bool extension_identifier(std::string_view value) {
-    return !value.empty() && std::all_of(value.begin(), value.end(), [](unsigned char character) {
-        return std::isalnum(character) != 0 || character == '-' || character == '_';
-    });
+    return value.size() == 32 &&
+           std::all_of(value.begin(), value.end(), [](unsigned char character) {
+               return character >= 'a' && character <= 'p';
+           });
 }
 
-bool allowed_origin(std::string_view origin) {
-    if (origin == "https://codeforces.com") {
-        return true;
+std::string configured_extension_identifier() {
+    if (const char* configured = std::getenv("CFPROBS_CHROME_EXTENSION_ID");
+        configured != nullptr && *configured != '\0') {
+        return configured;
     }
-    for (const std::string_view prefix :
-         {"chrome-extension://", "moz-extension://", "safari-web-extension://"}) {
-        if (origin.starts_with(prefix) && extension_identifier(origin.substr(prefix.size()))) {
-            return true;
-        }
+    const char* root = std::getenv("CF_PROBS_ROOT");
+    if (root == nullptr || *root == '\0') {
+        return {};
     }
-    return false;
+    const std::filesystem::path path =
+        std::filesystem::path(root) / "browser" / "extension-id";
+    std::ifstream input(path);
+    if (!input) {
+        return {};
+    }
+    std::string value{
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>(),
+    };
+    return trim(value);
+}
+
+bool allowed_origin(std::string_view origin, std::string_view expected_identifier) {
+    constexpr std::string_view prefix = "chrome-extension://";
+    if (!origin.starts_with(prefix)) {
+        return false;
+    }
+    const std::string_view identifier = origin.substr(prefix.size());
+    if (!extension_identifier(identifier)) {
+        return false;
+    }
+    return identifier == expected_identifier;
 }
 
 std::string header(const HttpRequest& request, std::string_view name) {
@@ -379,7 +403,7 @@ void send_response(int descriptor, const HttpResponse& response) {
     }
     if (response.preflight) {
         output += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-                  "Access-Control-Allow-Headers: Content-Type\r\n"
+                  "Access-Control-Allow-Headers: Content-Type, X-Cfprobs-Extension\r\n"
                   "Access-Control-Max-Age: 60\r\n";
     }
     output += "Content-Type: " + response.content_type +
@@ -389,12 +413,21 @@ void send_response(int descriptor, const HttpResponse& response) {
     send_all(descriptor, output);
 }
 
-std::string required_origin(const HttpRequest& request) {
+std::string required_client(const HttpRequest& request, std::string_view extension_identifier) {
     const std::string origin = header(request, "origin");
-    if (origin.empty() || !allowed_origin(origin)) {
+    if (!origin.empty()) {
+        if (!allowed_origin(origin, extension_identifier)) {
+            throw HttpError(403, "origin is not allowed");
+        }
+        return origin;
+    }
+    const std::string claimed_extension = header(request, "x-cfprobs-extension");
+    if (lower(header(request, "sec-fetch-site")) != "none" ||
+        (!claimed_extension.empty() &&
+         !constant_time_equal(claimed_extension, extension_identifier))) {
         throw HttpError(403, "origin is not allowed");
     }
-    return origin;
+    return {};
 }
 
 void require_host(const HttpRequest& request, std::uint16_t port) {
@@ -423,9 +456,21 @@ bool required_bool(const Json& document, std::string_view name) {
     return value->boolean();
 }
 
+bool optional_bool(const Json& document, std::string_view name) {
+    const Json* value = document.find(name);
+    if (value == nullptr) {
+        return false;
+    }
+    if (!value->is_bool()) {
+        throw HttpError(400, std::string(name) + " must be a boolean");
+    }
+    return value->boolean();
+}
+
 struct ParsedSubmitResult {
     BrowserSubmitReceipt receipt;
     std::string error;
+    bool unknown = false;
 };
 
 ParsedSubmitResult parse_submit_result(std::string_view body) {
@@ -445,12 +490,16 @@ ParsedSubmitResult parse_submit_result(std::string_view body) {
             optional_string(document, "verdict"),
         },
         optional_string(document, "error"),
+        optional_bool(document, "unknown"),
     };
     if (result.error.empty()) {
         result.error = optional_string(document, "message");
     }
     if (ok && result.receipt.submission_url.empty()) {
         throw HttpError(400, "successful result has no submission URL");
+    }
+    if (ok && result.unknown) {
+        throw HttpError(400, "successful result cannot have unknown status");
     }
     if (!ok && result.error.empty()) {
         result.error = "Codeforces rejected the submission";
@@ -467,7 +516,12 @@ std::string submission_response(const BrowserSubmitRequest& request) {
            ",\"source\":" + json_quote(request.source) + "}";
 }
 
-std::vector<std::string> browser_command(std::string_view url) {
+struct BrowserCommand {
+    std::vector<std::string> arguments;
+    bool detached = false;
+};
+
+BrowserCommand browser_command(std::string_view url) {
     const char* configured = std::getenv("CFPROBS_BROWSER");
     if (configured != nullptr && *configured != '\0') {
         std::vector<std::string> command = split_command_words(configured);
@@ -484,12 +538,12 @@ std::vector<std::string> browser_command(std::string_view url) {
         if (!replaced) {
             command.emplace_back(url);
         }
-        return command;
+        return {std::move(command), true};
     }
 #ifdef __APPLE__
-    return {"open", std::string(url)};
+    return {{"open", "-a", "Google Chrome", std::string(url)}, false};
 #else
-    return {"xdg-open", std::string(url)};
+    return {{"google-chrome", std::string(url)}, true};
 #endif
 }
 
@@ -499,6 +553,7 @@ struct BridgeCompletion {
     std::string fetched_package;
     BrowserSubmitReceipt submission;
     std::string error;
+    bool submission_unknown = false;
     bool complete = false;
 };
 
@@ -521,6 +576,9 @@ class Bridge {
            BrowserBridgeOptions options)
         : mode_(mode), page_url_(std::move(page_url)), request_(std::move(request)),
           options_(options), token_(random_hex(32)), navigation_nonce_(random_hex(8)) {
+        if (options_.extension_id.empty()) {
+            options_.extension_id = configured_extension_identifier();
+        }
         validate();
         listen();
     }
@@ -536,36 +594,40 @@ class Bridge {
     Bridge& operator=(const Bridge&) = delete;
 
     void open_browser() const {
-        const ProcessResult result =
-            run_process(browser_command(launch_url()), ProcessOptions{
-                                                           std::nullopt,
-                                                           std::nullopt,
-                                                           std::nullopt,
-                                                           std::chrono::seconds(10),
-                                                           std::nullopt,
-                                                       });
-        if (result.status != 0) {
-            throw std::runtime_error("cannot open the browser");
-        }
+        open_browser_url(launch_url());
     }
 
     BridgeCompletion wait() {
         BridgeCompletion completion;
         std::size_t connections = 0;
-        const auto deadline = std::chrono::steady_clock::now() + options_.wait_timeout;
+        const auto started = std::chrono::steady_clock::now();
+        const auto connect_deadline = started + options_.connect_timeout;
+        const auto deadline = started + options_.wait_timeout;
 
         while (!completion.complete) {
             if (connections >= options_.max_connections) {
                 throw std::runtime_error("browser connector sent too many requests");
             }
             const auto now = std::chrono::steady_clock::now();
-            if (now >= deadline) {
-                throw std::runtime_error(
-                    "browser connector did not respond; load the repository's browser/ "
-                    "extension and retry");
+            if (!connector_ready_ && now >= connect_deadline) {
+                throw BrowserConnectorUnavailable(
+                    "Chrome connector did not respond; install it or use probs submit --manual");
             }
+            if (now >= deadline) {
+                if (mode_ == BridgeMode::submit) {
+                    if (submission_served_) {
+                        throw std::runtime_error(
+                            "submission status is unknown; check Chrome before trying again");
+                    }
+                    throw BrowserConnectorUnavailable(
+                        "Chrome connector stopped before requesting the submission");
+                }
+                throw std::runtime_error("Chrome connector timed out");
+            }
+            const auto phase_deadline =
+                connector_ready_ ? deadline : std::min(deadline, connect_deadline);
             const auto remaining =
-                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+                std::chrono::duration_cast<std::chrono::milliseconds>(phase_deadline - now);
             const int timeout = static_cast<int>(
                 std::min<std::int64_t>(remaining.count(), static_cast<std::int64_t>(60000)));
             pollfd descriptor{listener_, POLLIN, 0};
@@ -604,7 +666,7 @@ class Bridge {
                 const HttpRequest incoming =
                     read_request(connection, maximum_body, request_deadline);
                 const std::string origin = header(incoming, "origin");
-                if (allowed_origin(origin)) {
+                if (allowed_origin(origin, options_.extension_id)) {
                     response_origin = origin;
                 }
                 send_response(connection, handle(incoming, completion));
@@ -644,10 +706,19 @@ class Bridge {
             throw std::invalid_argument("browser submission source is too large");
         }
         if (options_.request_timeout <= std::chrono::milliseconds::zero() ||
+            options_.connect_timeout <= std::chrono::milliseconds::zero() ||
             options_.wait_timeout <= std::chrono::milliseconds::zero() ||
             options_.max_fetch_bytes == 0 || options_.max_result_bytes == 0 ||
             options_.max_connections == 0) {
             throw std::invalid_argument("browser connector limits must be positive");
+        }
+        if (!options_.extension_id.empty() && !extension_identifier(options_.extension_id)) {
+            throw std::invalid_argument(
+                "CFPROBS_CHROME_EXTENSION_ID must be 32 lowercase letters from a to p");
+        }
+        if (options_.extension_id.empty()) {
+            throw std::runtime_error(
+                "Chrome extension ID is not configured; browser/extension-id is missing");
         }
     }
 
@@ -701,15 +772,26 @@ class Bridge {
     HttpResponse handle(const HttpRequest& incoming, BridgeCompletion& completion) {
         require_host(incoming, port_);
         const bool known_route =
-            route(incoming.target, "submission") || route(incoming.target, "fetch") ||
+            route(incoming.target, "ready") || route(incoming.target, "submission") ||
+            route(incoming.target, "fetch") ||
             route(incoming.target, "fetch-error") || route(incoming.target, "result");
         if (incoming.method == "OPTIONS" && known_route) {
             return HttpResponse{
-                204, "text/plain; charset=utf-8", {}, required_origin(incoming), true,
+                204,
+                "text/plain; charset=utf-8",
+                {},
+                required_client(incoming, options_.extension_id),
+                true,
             };
         }
 
-        const std::string origin = required_origin(incoming);
+        const std::string origin = required_client(incoming, options_.extension_id);
+        if (incoming.method == "GET" && route(incoming.target, "ready")) {
+            connector_ready_ = true;
+            return HttpResponse{
+                200, "application/json; charset=utf-8", "{\"ok\":true}", origin, false,
+            };
+        }
         if (mode_ == BridgeMode::submit && incoming.method == "GET" &&
             route(incoming.target, "submission")) {
             if (submission_served_) {
@@ -726,12 +808,13 @@ class Bridge {
             if (incoming.body.size() > options_.max_result_bytes) {
                 throw HttpError(413, "submission result is too large");
             }
-            if (!submission_served_) {
+            ParsedSubmitResult parsed = parse_submit_result(incoming.body);
+            if (!submission_served_ && (parsed.error.empty() || parsed.unknown)) {
                 throw HttpError(409, "submission source was not requested");
             }
-            ParsedSubmitResult parsed = parse_submit_result(incoming.body);
             completion.submission = std::move(parsed.receipt);
             completion.error = std::move(parsed.error);
+            completion.submission_unknown = parsed.unknown;
             completion.complete = true;
             return HttpResponse{
                 200, "application/json; charset=utf-8", "{\"ok\":true}", origin, false,
@@ -770,10 +853,30 @@ class Bridge {
     std::uint16_t port_ = 0;
     std::string token_;
     std::string navigation_nonce_;
+    bool connector_ready_ = false;
     bool submission_served_ = false;
 };
 
 } // namespace
+
+void open_browser_url(const std::string& url) {
+    const BrowserCommand command = browser_command(url);
+    if (command.detached) {
+        launch_detached_process(command.arguments);
+        return;
+    }
+    const ProcessResult result =
+        run_process(command.arguments, ProcessOptions{
+                                           std::nullopt,
+                                           std::nullopt,
+                                           std::nullopt,
+                                           std::chrono::seconds(10),
+                                           std::nullopt,
+                                       });
+    if (result.status != 0) {
+        throw std::runtime_error("cannot open Chrome");
+    }
+}
 
 std::string fetch_problem_in_browser(const std::string& page_url,
                                      const BrowserBridgeOptions& options) {
@@ -795,6 +898,9 @@ BrowserSubmitReceipt submit_in_browser(const BrowserSubmitRequest& request,
     bridge.open_browser();
     BridgeCompletion completion = bridge.wait();
     if (!completion.error.empty()) {
+        if (completion.submission_unknown) {
+            throw std::runtime_error("submission status is unknown: " + completion.error);
+        }
         throw std::runtime_error("Codeforces submission failed: " + completion.error);
     }
     return completion.submission;

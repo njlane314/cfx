@@ -19,4 +19,6 @@ struct SubmissionArtifact {
 SubmissionArtifact prepare_submission(const std::filesystem::path& root, const Problem& problem,
                                       bool rebuild = false);
 
+void copy_submission_to_clipboard(const SubmissionArtifact& artifact);
+
 } // namespace cfprobs

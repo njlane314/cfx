@@ -55,22 +55,23 @@
   }
 
   async function localRequest(request, route, options = {}) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      return await fetch(
-        `http://127.0.0.1:${request.port}/${route}/${encodeURIComponent(request.token)}`,
-        {
-          cache: "no-store",
-          credentials: "omit",
-          referrerPolicy: "no-referrer",
-          signal: controller.signal,
-          ...options
-        }
-      );
-    } finally {
-      clearTimeout(timeout);
+    const method = options.method || "GET";
+    const result = await chrome.runtime.sendMessage({
+      type: "cfprobs-local-request",
+      port: request.port,
+      token: request.token,
+      route,
+      method,
+      body: options.body || ""
+    });
+    if (!result || result.ok !== true || !Number.isInteger(result.status)) {
+      throw new Error(result?.error || "Chrome connector did not return a response");
     }
+    return {
+      ok: result.status >= 200 && result.status < 300,
+      status: result.status,
+      json: async () => JSON.parse(result.body)
+    };
   }
 
   async function postLocal(request, route, value) {
@@ -265,28 +266,61 @@
     return url.href;
   }
 
+  function signedOut() {
+    return Boolean(
+      document.querySelector('a[href^="/enter"], form[action*="/enter"]')
+    );
+  }
+
+  function submissionPageError() {
+    if (signedOut()) {
+      return "Codeforces is not signed in in Chrome; sign in, then rerun probs submit";
+    }
+    if (
+      !/^\/contest\/[0-9]+\/submit\/?$/i.test(location.pathname) &&
+      !/^\/problemset\/submit\/?$/i.test(location.pathname)
+    ) {
+      return "Codeforces redirected away from its submission page; reload Codeforces, then rerun probs submit";
+    }
+    return "";
+  }
+
   function submissionForm(artifact) {
     const contest = location.pathname.match(/^\/contest\/([0-9]+)\/submit\/?$/i);
-    if (!contest) {
-      throw new Error("open the contest submission page");
+    const problemset = /^\/problemset\/submit\/?$/i.test(location.pathname);
+    if (!contest && !problemset) {
+      throw new Error(submissionPageError());
     }
-    if (artifact.target.toUpperCase() !== `${contest[1]}${artifact.index}`.toUpperCase()) {
+    if (
+      contest &&
+      artifact.target.toUpperCase() !== `${contest[1]}${artifact.index}`.toUpperCase()
+    ) {
       throw new Error(`submission target ${artifact.target} does not match this contest`);
     }
 
+    const problemField = contest ? "submittedProblemIndex" : "submittedProblemCode";
     const form = Array.from(document.forms).find(
       candidate =>
-        candidate.querySelector('[name="submittedProblemIndex"]') &&
+        candidate.querySelector(`[name="${problemField}"]`) &&
         candidate.querySelector('[name="programTypeId"]') &&
         candidate.querySelector('[name="source"]')
     );
     if (!form) {
-      throw new Error("Codeforces submission form is unavailable; sign in first");
+      throw new Error(
+        signedOut()
+          ? "Codeforces is not signed in in Chrome; sign in, then rerun probs submit"
+          : "Codeforces submission form is unavailable; reload Codeforces, then rerun probs submit"
+      );
     }
-    const problem = form.querySelector('[name="submittedProblemIndex"]');
+    const problem = form.querySelector(`[name="${problemField}"]`);
     const language = form.querySelector('[name="programTypeId"]');
     const source = form.querySelector('[name="source"]');
-    selectProblem(problem, artifact.index);
+    if (contest) {
+      selectProblem(problem, artifact.index);
+    } else {
+      problem.value = artifact.target;
+      dispatchChange(problem);
+    }
     selectLanguage(language, artifact.language);
     source.value = artifact.source;
     dispatchChange(source);
@@ -348,12 +382,23 @@
 
     const error = formError(documentCopy);
     const stayedOnForm = /\/submit\/?$/i.test(new URL(responseUrl).pathname);
-    if (error || !response.ok || stayedOnForm) {
+    if (error) {
       return {
         ok: false,
         url: responseUrl,
         verdict: "",
-        message: error || `Codeforces rejected the submission (HTTP ${response.status})`
+        message: error
+      };
+    }
+    if (!response.ok || stayedOnForm) {
+      return {
+        ok: false,
+        unknown: true,
+        url: responseUrl,
+        verdict: "",
+        message: !response.ok
+          ? `Codeforces returned HTTP ${response.status}; check Codeforces before trying again`
+          : "Codeforces stayed on the submission form without an error; check before trying again"
       };
     }
 
@@ -393,9 +438,10 @@
 
     return {
       ok: false,
+      unknown: true,
       url: responseUrl,
       verdict: "",
-      message: "Codeforces returned an unrecognized submission response"
+      message: "Codeforces returned an unrecognized response after submission"
     };
   }
 
@@ -413,6 +459,7 @@
 
   async function handleSubmit(request) {
     let result;
+    let submissionStarted = false;
     try {
       const artifactResponse = await localRequest(request, "submission");
       if (!artifactResponse.ok) {
@@ -426,6 +473,7 @@
       const {action, data} = submissionForm(artifact);
       const knownSubmissionIds = submissionIds(document);
       showStatus(`submitting ${artifact.target}`);
+      submissionStarted = true;
       const response = await fetch(action, {
         method: "POST",
         body: data,
@@ -437,11 +485,15 @@
       });
       result = submissionOutcome(response, await response.text(), knownSubmissionIds);
     } catch (error) {
+      const message = messageOf(error);
       result = {
         ok: false,
+        unknown: submissionStarted,
         url: publicCodeforcesUrl(cleanPageUrl()),
         verdict: "",
-        message: messageOf(error)
+        message: submissionStarted
+          ? `${message}; check Codeforces before trying again`
+          : message
       };
     }
 
@@ -452,7 +504,10 @@
       }
       location.assign(result.url);
     } else {
-      showStatus(result.message, true);
+      showStatus(
+        result.unknown ? `submission status is unknown: ${result.message}` : result.message,
+        true
+      );
     }
   }
 
@@ -471,6 +526,10 @@
     let request;
     try {
       request = parseRequest(rawFragment);
+      const response = await localRequest(request, "ready");
+      if (!response.ok) {
+        throw new Error(`local workbench returned HTTP ${response.status}`);
+      }
     } catch (error) {
       await domReady;
       showStatus(messageOf(error), true);
@@ -481,6 +540,18 @@
     if (request.action === "fetch") {
       await handleFetch(request);
     } else {
+      const error = submissionPageError();
+      if (error) {
+        await reportQuietly(request, "result", {
+          ok: false,
+          unknown: false,
+          url: publicCodeforcesUrl(cleanPageUrl()),
+          verdict: "",
+          message: error
+        });
+        showStatus(error, true);
+        return;
+      }
       await handleSubmit(request);
     }
   }

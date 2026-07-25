@@ -25,6 +25,10 @@ struct ProcessOptions {
 ProcessResult run_process(const std::vector<std::string>& arguments,
                           const ProcessOptions& options = {});
 
+// Start a process in a detached session and return once its executable has
+// loaded. Standard streams are connected to /dev/null.
+void launch_detached_process(const std::vector<std::string>& arguments);
+
 struct CaptureResult {
     int status = 0;
     std::string output;
