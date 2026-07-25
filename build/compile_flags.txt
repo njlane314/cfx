@@ -1,4 +1,0 @@
--std=gnu++20
--Iinclude
--I../include
--DLOCAL
