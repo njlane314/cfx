@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "cfx connector",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1384K7uuubMrxhEghKJokx5vZ8z/DsHCKeTWmcfLgxLImcdab8vG2pT8kZXWegkB2bPT9/+WMf6GqIEjHrO42MNERoyvmK/rDbTdmAJTb9k3bGVHKPp4pG6gIXbTKC2aoPVtTvB4wH05ZftVGQ3st3zZYWps0NyVHMoZnwJXs5GpQ+1/3ySvyKhe8qEG0zeT+Bq18CulSl6bC42iLiIx2afJb46MXBSpJ0gmH18ajGJgMJPdBAE4i11oE8tkre6x7SLOTS9PLOkZcDLM5weDONOptP3ffeYPuYLoA+f9TiD4OHzzEdxhAU+kG/Nth/AdqUzcNH8lki8OMCwPFlfn0wIDAQAB",
   "description": "Moves Codeforces samples and submissions through the local cfx workbench.",
   "homepage_url": "https://github.com/njlane314/cfx",
@@ -14,6 +14,10 @@
   "background": {
     "service_worker": "background.js"
   },
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
   "host_permissions": [
     "http://127.0.0.1/*"
   ],
@@ -33,6 +37,8 @@
         "https://codeforces.com/enter*"
       ],
       "js": [
+        "samples.js",
+        "submission.js",
         "connector.js"
       ],
       "run_at": "document_start"

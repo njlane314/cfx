@@ -20,11 +20,12 @@ else
 fi
 build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfx-library.XXXXXX")
 trap 'rm -rf "$build_dir"' EXIT
+cfx_std=${CFX_STD:-c++20}
 
 for source in "$script_dir"/test_*.cpp; do
     name=$(basename "$source" .cpp)
     "${compiler_command[@]}" \
-        -std=c++20 \
+        "-std=$cfx_std" \
         -Wall \
         -Wextra \
         -Wpedantic \
@@ -36,7 +37,7 @@ for source in "$script_dir"/test_*.cpp; do
 done
 
 "${compiler_command[@]}" \
-    -std=c++20 \
+    "-std=$cfx_std" \
     -Wall \
     -Wextra \
     -Wpedantic \

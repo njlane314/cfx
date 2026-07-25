@@ -1,4 +1,5 @@
 #include "cfx/bundle.hpp"
+#include "cfx/file.hpp"
 #include "cfx/problem.hpp"
 #include "cfx/workspace.hpp"
 
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -76,45 +78,71 @@ template <class Function> void require_workspace_error(Function&& function, std:
     throw std::runtime_error("expected WorkspaceError");
 }
 
+template <class Function> void require_problem_error(Function&& function) {
+    try {
+        function();
+    } catch (const cfx::ProblemError&) {
+        return;
+    }
+    throw std::runtime_error("expected ProblemError");
+}
+
+template <class Function> void require_runtime_error(Function&& function) {
+    try {
+        function();
+    } catch (const std::runtime_error&) {
+        return;
+    }
+    throw std::runtime_error("expected runtime_error");
+}
+
 void test_problem_parsing() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
 
     const auto canonical = cfx::Problem::parse("71A", root);
     require(canonical.id() == "71A", "canonical ID");
-    require(canonical.legacy_id() == "A.71", "legacy ID");
-    require(cfx::Problem::parse("a.71", root).id() == "71A", "legacy spelling");
+    require(cfx::Problem::parse("a.71", root).id() == "71A", "alternate spelling");
     require(cfx::Problem::parse("a", "71", root).id() == "71A", "two-token spelling");
     require(cfx::Problem::parse("https://codeforces.com/problemset/problem/71/A", root).id() ==
                 "71A",
             "problemset URL");
-    require(cfx::Problem::parse("https://codeforces.com/contest/2227/problem/c?locale=en", root)
-                    .id() == "2227C",
-            "contest URL");
+    require(
+        cfx::Problem::parse("https://codeforces.com/contest/2227/problem/c?locale=en", root).id() ==
+            "2227C",
+        "contest URL");
     require(cfx::Problem::parse("problems/cf/2227/B/solution.cpp", root).id() == "2227B",
-            "new-layout path");
-    require(cfx::Problem::parse("solutions/A.71.cpp", root).id() == "71A", "legacy path");
+            "workspace path");
+    require_problem_error(
+        [&] { static_cast<void>(cfx::Problem::parse("solutions/A.71.cpp", root)); });
 }
 
-void test_problem_paths_and_fallback() {
-    TemporaryDirectory temporary;
-    const auto& root = temporary.path();
+void test_problem_paths_and_inference() {
+    TemporaryDirectory workspace;
+    TemporaryDirectory outside;
+    const auto& root = workspace.path();
     const auto problem = cfx::Problem::parse("71A", root);
 
-    require(problem.solution_path() == problem.preferred_solution_path(),
-            "new path is preferred for a new problem");
-    write(problem.legacy_solution_path(), "// legacy\n");
-    require(problem.solution_path() == problem.legacy_solution_path(), "legacy solution fallback");
-    fs::create_directories(problem.legacy_tests_path());
-    require(problem.test_directories() == std::vector<fs::path>{problem.legacy_tests_path()},
-            "legacy test fallback");
-    write(problem.preferred_solution_path(), "// preferred\n");
-    require(problem.solution_path() == problem.preferred_solution_path(),
-            "preferred solution wins");
+    require(problem.solution_path() == problem.directory() / "solution.cpp",
+            "canonical solution path");
     require(problem.test_directories() ==
-                (std::vector<fs::path>{problem.samples_path(), problem.cases_path(),
-                                       problem.legacy_tests_path()}),
-            "new-layout paths retain legacy regression cases");
+                (std::vector<fs::path>{problem.samples_path(), problem.cases_path()}),
+            "canonical test paths");
+
+    fs::create_directories(problem.directory());
+    const auto inferred = cfx::Problem::infer(problem.solution_path(), root);
+    require(inferred && inferred->id() == "71A", "problem inferred inside root");
+
+    const fs::path foreign = outside.path() / "problems" / "cf" / "71" / "A";
+    fs::create_directories(foreign);
+    require(!cfx::Problem::infer(foreign, root), "absolute path outside root rejected");
+    require(!cfx::Problem::infer(fs::relative(foreign, root), root),
+            "relative path escaping root rejected");
+
+    const fs::path link = root / "problems" / "cf" / "72" / "A";
+    fs::create_directories(link.parent_path());
+    fs::create_directory_symlink(foreign, link);
+    require(!cfx::Problem::infer(link, root), "symlink escaping root rejected");
 }
 
 void test_workspace_creation_is_idempotent() {
@@ -137,23 +165,27 @@ void test_workspace_creation_is_idempotent() {
     require(read(second.solution) == "// keep me\n", "existing solution not overwritten");
 }
 
-void test_workspace_migrates_legacy_source_without_shadowing() {
+void test_file_operations() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
-    write(root / "templates" / "solution.cpp", "// blank template\n");
+    const fs::path path = root / "data.bin";
+    const std::string binary{"alpha\0beta", 10};
 
-    const auto problem = cfx::Problem::parse("71A", root);
-    write(problem.legacy_solution_path(), "// keep legacy solution\n");
-    write(problem.legacy_tests_path() / "case-1.in", "input\n");
+    cfx::write_text(path, binary);
+    require(cfx::read_text(path) == binary, "binary-safe text round trip");
 
-    const auto result = cfx::Workspace(root).create(problem);
-    require(result.solution_created, "preferred source created during migration");
-    require(read(result.solution) == "// keep legacy solution\n",
-            "legacy source copied instead of blank template");
-    require(problem.solution_path() == problem.preferred_solution_path(),
-            "migrated source activates new layout");
-    require(problem.test_directories().back() == problem.legacy_tests_path(),
-            "legacy regression cases remain visible after migration");
+    const auto timestamp = fs::last_write_time(path);
+    cfx::write_atomic(path, binary);
+    require(fs::last_write_time(path) == timestamp, "identical atomic write is a no-op");
+
+    cfx::write_atomic(path, "replacement");
+    require(cfx::read_text(path) == "replacement", "atomic replacement");
+
+    const fs::path directory = root / "directory";
+    fs::create_directory(directory);
+    require_runtime_error([&] { cfx::write_atomic(directory, "not a directory"); });
+    require(!fs::exists(directory.string() + ".tmp." + std::to_string(::getpid())),
+            "failed atomic write removes its temporary");
 }
 
 void test_current_problem_record() {
@@ -164,7 +196,7 @@ void test_current_problem_record() {
 
     const auto first = cfx::Problem::parse("2227A", root);
     cfx::remember_current_problem(first, root);
-    require(read(root / ".build" / "current-problem") == "2227A\n",
+    require(read(root / ".cfx" / "current-problem") == "2227A\n",
             "current problem stored as a small canonical record");
     require(cfx::current_problem(root)->id() == "2227A", "current problem restored");
 
@@ -172,15 +204,20 @@ void test_current_problem_record() {
     cfx::remember_current_problem(second, root);
     require(cfx::current_problem(root)->id() == "71A", "current problem replaced");
 
-    write(root / ".build" / "current-problem", "not a problem\n");
+    fs::create_directories(root / ".build");
+    write(root / ".build" / "disposable", "cache\n");
+    fs::remove_all(root / ".build");
+    require(cfx::current_problem(root)->id() == "71A", "clean preserves current problem");
+
+    write(root / ".cfx" / "current-problem", "not a problem\n");
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
                             "run cfx PROBLEM again");
 
-    write(root / ".build" / "current-problem", "71a\n");
+    write(root / ".cfx" / "current-problem", "71a\n");
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
                             "run cfx PROBLEM again");
 
-    write(root / ".build" / "current-problem", std::string(65, '1'));
+    write(root / ".cfx" / "current-problem", std::string(65, '1'));
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
                             "run cfx PROBLEM again");
 }
@@ -219,8 +256,7 @@ void test_include_root_and_errors() {
     const auto& root = temporary.path();
     write(root / "include" / "cp" / "value.hpp", "#pragma once\nconstexpr int value = 4;\n");
     write(root / "source.cpp", "#include \"cp/value.hpp\"\nint answer = value;\n");
-    require(cfx::bundle("source.cpp", root).find("constexpr int value = 4;") !=
-                std::string::npos,
+    require(cfx::bundle("source.cpp", root).find("constexpr int value = 4;") != std::string::npos,
             "workspace include root");
 
     write(root / "missing.cpp", "#include \"not-there.hpp\"\n");
@@ -237,9 +273,9 @@ void test_include_root_and_errors() {
 int main() {
     try {
         test_problem_parsing();
-        test_problem_paths_and_fallback();
+        test_problem_paths_and_inference();
         test_workspace_creation_is_idempotent();
-        test_workspace_migrates_legacy_source_without_shadowing();
+        test_file_operations();
         test_current_problem_record();
         test_nested_and_repeated_bundling();
         test_include_root_and_errors();

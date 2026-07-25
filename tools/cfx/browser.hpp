@@ -37,8 +37,10 @@ struct BrowserBridgeOptions {
     // A cold Chrome launch can take well over eight seconds before its
     // extension service worker and first Codeforces content script are ready.
     std::chrono::milliseconds connect_timeout{30000};
-    // Covers the browser's verification challenge plus its 4m45s judge poll.
+    // Shared by browser verification, identity confirmation, and verdict polling.
     std::chrono::milliseconds wait_timeout{370000};
+    // Codeforces permits one API request every two seconds.
+    std::chrono::milliseconds verdict_poll_interval{2100};
     std::size_t max_source_bytes = 1024 * 1024;
     std::size_t max_fetch_bytes = 16 * 1024 * 1024;
     std::size_t max_result_bytes = 64 * 1024;

@@ -32,19 +32,13 @@ class Problem {
 
     // Codeforces-native form, for example "71A".
     [[nodiscard]] std::string id() const;
-    // Compatibility form used by the original flat workspace, for example "A.71".
-    [[nodiscard]] std::string legacy_id() const;
 
     [[nodiscard]] std::filesystem::path directory() const;
-    [[nodiscard]] std::filesystem::path preferred_solution_path() const;
-    [[nodiscard]] std::filesystem::path legacy_solution_path() const;
     [[nodiscard]] std::filesystem::path solution_path() const;
     [[nodiscard]] std::filesystem::path samples_path() const;
     [[nodiscard]] std::filesystem::path cases_path() const;
     [[nodiscard]] std::filesystem::path stress_path() const;
-    [[nodiscard]] std::filesystem::path legacy_tests_path() const;
     [[nodiscard]] std::vector<std::filesystem::path> test_directories() const;
-    [[nodiscard]] bool uses_new_layout() const;
 
   private:
     std::string contest_id_;

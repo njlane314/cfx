@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+fixtures=$repo_root/tests/tooling/fixtures
+build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfx-judge-workflow.XXXXXX")
+trap 'rm -rf "$build_dir"' EXIT
+
+sandbox=$build_dir/workspace
+mkdir -p "$sandbox/templates" "$sandbox/include"
+cp "$repo_root/templates/solution.cpp" "$sandbox/templates/solution.cpp"
+cp -R "$repo_root/include/cp" "$sandbox/include/cp"
+
+for removed_alias in new run rerun; do
+    if alias_output=$(
+        "$repo_root/bin/cfx" --root "$sandbox" "$removed_alias" 99991A 2>&1
+    ); then
+        echo "judge workflow: removed alias '$removed_alias' was accepted" >&2
+        exit 1
+    else
+        alias_status=$?
+    fi
+    [[ $alias_status == 2 ]]
+    grep -q 'cannot parse problem' <<<"$alias_output"
+    test ! -e "$sandbox/problems"
+    test ! -e "$sandbox/.cfx"
+done
+
+"$repo_root/bin/cfx" --root "$sandbox" get 99991A | grep -q 'created:'
+problem_dir=$sandbox/problems/cf/99991/A
+cp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
+cp "$fixtures/02.in" "$problem_dir/samples/02.in"
+cp "$fixtures/02.out" "$problem_dir/samples/02.out"
+cp "$fixtures/10.in" "$problem_dir/samples/10.in"
+cp "$fixtures/10.out" "$problem_dir/samples/10.out"
+cp "$fixtures/02.in" "$problem_dir/cases/overflow.in"
+cp "$fixtures/02.out" "$problem_dir/cases/overflow.out"
+cp "$fixtures/gen.cpp" "$problem_dir/stress/gen.cpp"
+cp "$fixtures/brute.cpp" "$problem_dir/stress/brute.cpp"
+
+test_output=$(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" test --checked
+)
+grep -q '3/3 passed' <<<"$test_output"
+grep -q 'limits: time 5.000s (fallback), memory unlimited, output 64.0MiB' <<<"$test_output"
+grep -q 'CPU, .* wall' <<<"$test_output"
+sample_02_line=$(grep -n 'samples/02.in' <<<"$test_output" | cut -d: -f1)
+sample_10_line=$(grep -n 'samples/10.in' <<<"$test_output" | cut -d: -f1)
+case_line=$(grep -n 'cases/overflow.in' <<<"$test_output" | cut -d: -f1)
+if ((sample_02_line >= sample_10_line || sample_10_line >= case_line)); then
+    echo "judge workflow: test cases are not naturally ordered" >&2
+    exit 1
+fi
+
+if tiny_limit_output=$(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" test --time-limit 0.0001 2>&1
+); then
+    echo "judge workflow: sub-millisecond time limit was accepted" >&2
+    exit 1
+fi
+grep -q -- '--time-limit must be at least 0.001 seconds' <<<"$tiny_limit_output"
+
+cp "$fixtures/02.in" "$problem_dir/cases/incomplete.in"
+if (
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" test --checked
+) >/dev/null; then
+    echo "judge workflow: incomplete input/output pair was accepted" >&2
+    exit 1
+fi
+rm "$problem_dir/cases/incomplete.in"
+
+cached_output=$(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" test --checked
+)
+grep -q 'cached:' <<<"$cached_output"
+
+(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" bundle
+) >"$build_dir/bundled.cpp"
+if grep -q '#include "cp/' "$build_dir/bundled.cpp"; then
+    echo "judge workflow: bundle retained a cp include" >&2
+    exit 1
+fi
+
+(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" stress -n 5 --seed 11
+) | grep -q '5 stress cases passed'
+
+cp "$fixtures/wrong.cpp" "$problem_dir/solution.cpp"
+if (
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" stress -n 1 --seed 99
+) >/dev/null; then
+    echo "judge workflow: stress mismatch was accepted" >&2
+    exit 1
+fi
+(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" fail
+) | grep -q 'stress-1.in'
+test -f "$problem_dir/cases/stress-1.in"
+test -f "$problem_dir/cases/stress-1.out"
+
+cp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
+(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" test
+) | grep -q '4/4 passed'
+
+echo "judge and stress workflow passed"

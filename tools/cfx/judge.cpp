@@ -1,5 +1,6 @@
 #include "judge.hpp"
 
+#include "file.hpp"
 #include "json.hpp"
 #include "problem.hpp"
 
@@ -7,9 +8,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
-#include <fstream>
 #include <iostream>
-#include <iterator>
 #include <map>
 #include <stdexcept>
 #include <system_error>
@@ -28,24 +27,6 @@ struct Case {
     fs::path input;
     std::optional<fs::path> expected;
 };
-
-std::string read_file(const fs::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("cannot read " + path.string());
-    }
-    return {
-        std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>(),
-    };
-}
-
-void write_file(const fs::path& path, const std::string& value) {
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output || !(output << value)) {
-        throw std::runtime_error("cannot write " + path.string());
-    }
-}
 
 bool natural_less(const std::string& left, const std::string& right) {
     std::size_t a = 0;
@@ -141,7 +122,7 @@ std::string preview(const std::string& value);
 
 void show_stream_if_nonempty(const std::string& label, const fs::path& path, std::ostream& output) {
     if (fs::is_regular_file(path) && fs::file_size(path) != 0) {
-        const std::string contents = preview(read_file(path));
+        const std::string contents = preview(read_text(path));
         output << label << ":\n" << contents;
         if (contents.back() != '\n') {
             output << '\n';
@@ -223,9 +204,9 @@ void atomic_pair(const fs::path& input_path, const fs::path& output_path, const 
     bool output_backed_up = false;
     bool input_installed = false;
     bool output_installed = false;
-    write_file(input_temp, input);
+    write_text(input_temp, input);
     try {
-        write_file(output_temp, output);
+        write_text(output_temp, output);
         if (fs::exists(input_path)) {
             fs::rename(input_path, input_backup);
             input_backed_up = true;
@@ -272,7 +253,7 @@ ProblemLimits load_problem_limits(const Problem& problem) {
 
     Json document;
     try {
-        document = parse_json(read_file(metadata_path));
+        document = parse_json(read_text(metadata_path));
     } catch (const JsonError& error) {
         throw std::runtime_error(metadata_path.string() + ": " + error.what());
     }
@@ -377,28 +358,24 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
             continue;
         }
         const ProcessResult result =
-            run_process({summary.build.binary.string()}, ProcessOptions{
-                                                             .stdin_path = test_case.input,
-                                                             .stdout_path = actual_path,
-                                                             .stderr_path = error_path,
-                                                             .timeout = summary.limits.time_limit,
-                                                             .working_directory =
-                                                                 problem.solution_path()
-                                                                     .parent_path(),
-                                                             .memory_limit_bytes =
-                                                                 summary.limits.memory_limit_bytes,
-                                                             .output_limit_bytes =
-                                                                 options.output_limit_bytes,
-                                                         });
+            run_process({summary.build.binary.string()},
+                        ProcessOptions{
+                            .stdin_path = test_case.input,
+                            .stdout_path = actual_path,
+                            .stderr_path = error_path,
+                            .timeout = summary.limits.time_limit,
+                            .working_directory = problem.solution_path().parent_path(),
+                            .memory_limit_bytes = summary.limits.memory_limit_bytes,
+                            .output_limit_bytes = options.output_limit_bytes,
+                        });
         summary.elapsed += result.elapsed;
         summary.max_wall_time = std::max(summary.max_wall_time, result.elapsed);
         summary.max_cpu_time = std::max(summary.max_cpu_time, result.cpu_time);
-        summary.peak_memory_bytes =
-            std::max(summary.peak_memory_bytes, result.peak_memory_bytes);
+        summary.peak_memory_bytes = std::max(summary.peak_memory_bytes, result.peak_memory_bytes);
         if (result.status != 0) {
             const CaseVerdict verdict = process_verdict(result);
-            std::cout << (options.concise ? test_case.name + ": " : "")
-                      << verdict_name(verdict) << " (";
+            std::cout << (options.concise ? test_case.name + ": " : "") << verdict_name(verdict)
+                      << " (";
             if (verdict == CaseVerdict::runtime_error) {
                 std::cout << runtime_detail(result) << ", ";
             }
@@ -409,15 +386,14 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         }
 
         show_stream_if_nonempty("stderr", error_path, std::cerr);
-        const std::string actual = read_file(actual_path);
-        const std::string expected = read_file(*test_case.expected);
+        const std::string actual = read_text(actual_path);
+        const std::string expected = read_text(*test_case.expected);
         if (normalize_output(actual) == normalize_output(expected)) {
             if (!options.concise) {
                 std::cout << "OK (" << resource_usage(result, summary.limits) << ")\n";
             }
             ++summary.passed;
-            summary.cases.push_back(
-                TestCaseResult{test_case.name, CaseVerdict::accepted, result});
+            summary.cases.push_back(TestCaseResult{test_case.name, CaseVerdict::accepted, result});
         } else {
             std::cout << (options.concise ? test_case.name + ": " : "") << "WA ("
                       << resource_usage(result, summary.limits) << ")\n"
@@ -483,38 +459,36 @@ StressSummary Judge::stress(const Problem& problem, const StressOptions& options
                                                .stdout_path = input,
                                                .stderr_path = generator_error,
                                                .timeout = options.generator_timeout,
-                                               .working_directory =
-                                                   options.generator.parent_path(),
+                                               .working_directory = options.generator.parent_path(),
                                            });
         if (generated.status != 0) {
             throw std::runtime_error("generator failed for seed " + std::to_string(seed));
         }
 
-        const ProcessResult expected_run =
-            run_process({brute.binary.string()}, ProcessOptions{
-                                                     .stdin_path = input,
-                                                     .stdout_path = expected,
-                                                     .stderr_path = brute_error,
-                                                     .timeout = options.timeout,
-                                                     .working_directory =
-                                                         options.brute.parent_path(),
-                                                 });
+        const ProcessResult expected_run = run_process(
+            {brute.binary.string()}, ProcessOptions{
+                                         .stdin_path = input,
+                                         .stdout_path = expected,
+                                         .stderr_path = brute_error,
+                                         .timeout = options.timeout,
+                                         .working_directory = options.brute.parent_path(),
+                                     });
         if (expected_run.status != 0) {
             throw std::runtime_error("brute force failed for seed " + std::to_string(seed));
         }
         const ProcessResult actual_run =
-            run_process({solution.binary.string()}, ProcessOptions{
-                                                        .stdin_path = input,
-                                                        .stdout_path = actual,
-                                                        .stderr_path = solution_error,
-                                                        .timeout = options.timeout,
-                                                        .working_directory =
-                                                            problem.solution_path().parent_path(),
-                                                    });
+            run_process({solution.binary.string()},
+                        ProcessOptions{
+                            .stdin_path = input,
+                            .stdout_path = actual,
+                            .stderr_path = solution_error,
+                            .timeout = options.timeout,
+                            .working_directory = problem.solution_path().parent_path(),
+                        });
         if (actual_run.status != 0 ||
-            normalize_output(read_file(actual)) != normalize_output(read_file(expected))) {
-            write_file(failure_directory / "seed.txt", std::to_string(seed) + "\n");
-            write_file(ready, "failure\n");
+            normalize_output(read_text(actual)) != normalize_output(read_text(expected))) {
+            write_text(failure_directory / "seed.txt", std::to_string(seed) + "\n");
+            write_text(ready, "failure\n");
             summary.failing_seed = seed;
             std::cout << "failed at seed " << seed << '\n'
                       << "input: " << input << '\n'
@@ -541,20 +515,18 @@ std::pair<fs::path, fs::path> Judge::promote_failure(const Problem& problem) con
         throw std::runtime_error("no current stress failure to promote for " + problem.id());
     }
 
-    const fs::path directory =
-        problem.uses_new_layout() ? problem.cases_path() : problem.legacy_tests_path();
-    const std::string prefix = problem.uses_new_layout() ? "stress-" : "case-";
+    const fs::path directory = problem.cases_path();
     int number = 1;
     fs::path input;
     fs::path output;
     do {
-        input = directory / (prefix + std::to_string(number) + ".in");
-        output = directory / (prefix + std::to_string(number) + ".out");
+        input = directory / ("stress-" + std::to_string(number) + ".in");
+        output = directory / ("stress-" + std::to_string(number) + ".out");
         ++number;
     } while (fs::exists(input) || fs::exists(output));
 
-    atomic_pair(input, output, read_file(failure_directory / "input.txt"),
-                read_file(failure_directory / "expected.txt"));
+    atomic_pair(input, output, read_text(failure_directory / "input.txt"),
+                read_text(failure_directory / "expected.txt"));
     return {input, output};
 }
 

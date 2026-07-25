@@ -66,9 +66,9 @@ Detailed description:
 >
 > The extension has no popup and does nothing by itself. It responds only to a
 > short-lived, token-protected listener started on `127.0.0.1` by an explicit
-> cfx command. It has no analytics, advertising, remote code, account
-> storage, or developer-operated server. Codeforces credentials and session
-> cookies stay in Chrome.
+> cfx command. It has no analytics, advertising, remote code, persistent
+> account storage, or developer-operated server. Codeforces credentials and
+> session cookies stay in Chrome.
 
 Single purpose:
 
@@ -82,6 +82,13 @@ Permission justification:
   `cfx PROBLEM`; fill and post the submission selected by `cfx submit`.
 - `127.0.0.1`: communicate with one short-lived, loopback-only `cfx`
   listener protected by an unguessable operation token.
+- `storage`: retain the pending loopback port and token, Codeforces handle and
+  target, recent prior submission IDs, and submission time only in
+  extension-owned, in-memory session storage while Codeforces redirects the
+  submitting tab; the record is keyed by tab and operation and then deleted.
+- `alarms`: schedule one local, one-shot cleanup at that record's expiry so it
+  is deleted even if the submitting tab closes or never returns; the alarm name
+  contains only the extension storage key and is cleared on earlier removal.
 
 Data disclosures: website content, browsing activity, form data, and
 user-generated content. Processing is limited to the user's device and

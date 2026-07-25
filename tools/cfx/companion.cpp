@@ -1,5 +1,6 @@
 #include "companion.hpp"
 
+#include "file.hpp"
 #include "json.hpp"
 #include "workspace.hpp"
 
@@ -9,10 +10,8 @@
 #include <cmath>
 #include <csignal>
 #include <cstring>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <iterator>
 #include <limits>
 #include <netdb.h>
 #include <optional>
@@ -29,38 +28,6 @@ namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
-
-std::string read_file(const fs::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("cannot read " + path.string());
-    }
-    return {
-        std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>(),
-    };
-}
-
-void write_file(const fs::path& path, const std::string& value) {
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output || !(output << value)) {
-        throw std::runtime_error("cannot write " + path.string());
-    }
-}
-
-void write_file_atomically(const fs::path& path, const std::string& value) {
-    if (fs::is_regular_file(path) && read_file(path) == value) {
-        return;
-    }
-    const fs::path temporary = path.string() + ".tmp." + std::to_string(::getpid());
-    write_file(temporary, value);
-    std::error_code error;
-    fs::rename(temporary, path, error);
-    if (error) {
-        fs::remove(temporary, error);
-        throw std::runtime_error("cannot replace " + path.string());
-    }
-}
 
 std::string with_final_newline(std::string value) {
     if (value.empty() || value.back() != '\n') {
@@ -326,7 +293,7 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
         const fs::path input = samples / pair.input_name;
         const fs::path output = samples / pair.output_name;
         if (!fs::is_regular_file(input) || !fs::is_regular_file(output) ||
-            read_file(input) != pair.input || read_file(output) != pair.output) {
+            read_text(input) != pair.input || read_text(output) != pair.output) {
             identical = false;
         }
     }
@@ -347,8 +314,8 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
         fs::create_directories(stage);
         try {
             for (const Expected& pair : expected) {
-                write_file(stage / pair.input_name, pair.input);
-                write_file(stage / pair.output_name, pair.output);
+                write_text(stage / pair.input_name, pair.input);
+                write_text(stage / pair.output_name, pair.output);
             }
             fs::rename(samples, backup);
             try {
@@ -370,23 +337,23 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
     }
 
     const fs::path metadata = package.problem.directory() / "problem.json";
-    write_file_atomically(metadata, "{\n"
-                                    "  \"id\": " +
-                                        json_quote(package.problem.id()) +
-                                        ",\n"
-                                        "  \"name\": " +
-                                        json_quote(package.name) +
-                                        ",\n"
-                                        "  \"url\": " +
-                                        json_quote(package.url) +
-                                        ",\n"
-                                        "  \"timeLimitMs\": " +
-                                        std::to_string(package.time_limit_ms) +
-                                        ",\n"
-                                        "  \"memoryLimitMb\": " +
-                                        std::to_string(package.memory_limit_mb) +
-                                        "\n"
-                                        "}\n");
+    write_atomic(metadata, "{\n"
+                           "  \"id\": " +
+                               json_quote(package.problem.id()) +
+                               ",\n"
+                               "  \"name\": " +
+                               json_quote(package.name) +
+                               ",\n"
+                               "  \"url\": " +
+                               json_quote(package.url) +
+                               ",\n"
+                               "  \"timeLimitMs\": " +
+                               std::to_string(package.time_limit_ms) +
+                               ",\n"
+                               "  \"memoryLimitMb\": " +
+                               std::to_string(package.memory_limit_mb) +
+                               "\n"
+                               "}\n");
 
     return ImportResult{
         package.problem,

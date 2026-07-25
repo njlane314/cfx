@@ -100,7 +100,12 @@ stage=$(mktemp -d "${TMPDIR:-/tmp}/cfx-browser.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 
 mkdir -p "$stage/icons" "$output_dir"
-cp "$manifest" "$script_dir/background.js" "$script_dir/connector.js" "$stage/"
+cp "$manifest" \
+    "$script_dir/background.js" \
+    "$script_dir/samples.js" \
+    "$script_dir/submission.js" \
+    "$script_dir/connector.js" \
+    "$stage/"
 for size in 16 32 48 128; do
     icon=$script_dir/icons/icon-$size.png
     if [[ ! -f $icon ]]; then

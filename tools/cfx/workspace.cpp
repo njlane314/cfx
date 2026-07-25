@@ -1,10 +1,9 @@
 #include "cfx/workspace.hpp"
 
-#include <array>
-#include <fstream>
+#include "cfx/file.hpp"
+
 #include <system_error>
 #include <utility>
-#include <unistd.h>
 
 namespace cfx {
 namespace {
@@ -33,27 +32,8 @@ fs::path select_template(const fs::path& root, const fs::path& requested_templat
     throw WorkspaceError("solution template not found; expected '" + preferred.string() + "'");
 }
 
-std::string read_file(const fs::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw WorkspaceError("cannot read solution template '" + path.string() + "'");
-    }
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-}
-
-void write_new_file(const fs::path& path, const std::string& contents) {
-    std::ofstream output(path, std::ios::binary | std::ios::out);
-    if (!output) {
-        throw WorkspaceError("cannot create solution '" + path.string() + "'");
-    }
-    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
-    if (!output) {
-        throw WorkspaceError("cannot write solution '" + path.string() + "'");
-    }
-}
-
 fs::path current_problem_path(const fs::path& root) {
-    return normalized_absolute(root) / ".build" / "current-problem";
+    return normalized_absolute(root) / ".cfx" / "current-problem";
 }
 
 } // namespace
@@ -63,7 +43,7 @@ Workspace::Workspace(fs::path root) : root_(normalized_absolute(std::move(root))
 WorkspaceResult Workspace::create(const Problem& problem, const fs::path& template_path) const {
     Problem local(problem.contest_id(), problem.index(), root_);
     WorkspaceResult result{
-        .solution = local.preferred_solution_path(),
+        .solution = local.solution_path(),
         .solution_created = false,
     };
 
@@ -83,15 +63,15 @@ WorkspaceResult Workspace::create(const Problem& problem, const fs::path& templa
     }
 
     if (!fs::exists(result.solution)) {
-        if (fs::is_regular_file(local.legacy_solution_path())) {
-            write_new_file(result.solution, read_file(local.legacy_solution_path()));
-        } else {
-            const auto source_template = select_template(root_, template_path);
-            if (!fs::is_regular_file(source_template)) {
-                throw WorkspaceError("solution template is not a file: '" +
-                                     source_template.string() + "'");
-            }
-            write_new_file(result.solution, read_file(source_template));
+        const auto source_template = select_template(root_, template_path);
+        if (!fs::is_regular_file(source_template)) {
+            throw WorkspaceError("solution template is not a file: '" + source_template.string() +
+                                 "'");
+        }
+        try {
+            write_text(result.solution, read_text(source_template));
+        } catch (const std::exception& error) {
+            throw WorkspaceError(error.what());
         }
         result.solution_created = true;
     } else if (!fs::is_regular_file(result.solution)) {
@@ -110,52 +90,35 @@ void remember_current_problem(const Problem& problem, const fs::path& root) {
                              path.parent_path().string() + "': " + error.message());
     }
 
-    const fs::path temporary = path.string() + ".tmp." + std::to_string(::getpid());
-    bool written = false;
-    {
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        if (output) {
-            output << problem.id() << '\n';
-            output.close();
-            written = static_cast<bool>(output);
-        }
-    }
-    if (!written) {
-        fs::remove(temporary, error);
-        throw WorkspaceError("cannot write current problem record '" + path.string() + "'");
-    }
-    fs::rename(temporary, path, error);
-    if (error) {
-        fs::remove(temporary, error);
-        throw WorkspaceError("cannot replace current problem record '" + path.string() + "'");
+    try {
+        write_atomic(path, problem.id() + '\n');
+    } catch (const std::exception& failure) {
+        throw WorkspaceError(failure.what());
     }
 }
 
 std::optional<Problem> current_problem(const fs::path& root) {
     const fs::path path = current_problem_path(root);
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        std::error_code error;
-        const bool exists = fs::exists(path, error);
-        if (error) {
-            throw WorkspaceError("cannot inspect current problem record '" + path.string() +
-                                 "': " + error.message());
-        }
-        if (!exists) {
-            return std::nullopt;
-        }
-        throw WorkspaceError("cannot read current problem record '" + path.string() + "'");
+    std::error_code error;
+    const bool exists = fs::exists(path, error);
+    if (error) {
+        throw WorkspaceError("cannot inspect current problem record '" + path.string() +
+                             "': " + error.message());
+    }
+    if (!exists) {
+        return std::nullopt;
     }
 
-    std::array<char, 65> buffer{};
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto length = static_cast<std::size_t>(input.gcount());
-    if (length == buffer.size()) {
+    std::string contents;
+    try {
+        contents = read_text(path);
+    } catch (const std::exception& failure) {
+        throw WorkspaceError(failure.what());
+    }
+    if (contents.size() >= 65) {
         throw WorkspaceError("invalid current problem record '" + path.string() +
                              "'; run cfx PROBLEM again");
     }
-
-    std::string contents(buffer.data(), length);
     if (contents.empty() || contents.back() != '\n') {
         throw WorkspaceError("invalid current problem record '" + path.string() +
                              "'; run cfx PROBLEM again");

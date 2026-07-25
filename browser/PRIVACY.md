@@ -8,20 +8,25 @@ It handles the following data:
 
 - public Codeforces problem metadata and sample tests;
 - the selected problem, language, and exact locally tested source code;
-- the resulting Codeforces submission ID, URL, verdict, passed-test count,
-  execution time, memory use, and observed judging wait.
+- the signed-in Codeforces handle, submission target and time, recent prior
+  submission IDs, and resulting submission ID.
 
 Problem data travels from Codeforces to the `cfx` process through a
 short-lived listener on `127.0.0.1`. During submission, source code is sent
 directly to Codeforces through the user's existing signed-in browser session.
-The result returns to the same loopback listener. The connector does not read
-or store passwords or authentication cookies.
+The confirmed submission identity returns to the same loopback listener. The
+local `cfx` process then obtains the verdict and resource use from the public
+Codeforces API. The connector does not read or store passwords or authentication
+cookies.
 
 The extension has no analytics, advertising, remote code, or developer-operated
-server. It does not sell user data or share it for unrelated purposes. It keeps
-no extension-side history or storage. Files intentionally imported or prepared
-by `cfx` remain in the user's local workbench; Codeforces retains submitted
-source according to its own policies.
+server. It does not sell user data or share it for unrelated purposes. During a
+submission redirect, it keeps only the pending operation in Chrome's in-memory
+extension session storage and deletes it after confirmation or expiry. Files
+intentionally imported or prepared by `cfx` remain in the user's local
+workbench; Codeforces retains submitted source according to its own policies.
+Chrome schedules a one-shot extension alarm for that expiry; it performs no
+periodic monitoring and the alarm contains only the extension storage key.
 
 Use of information is limited to the connector's user-facing purpose and
 complies with the Chrome Web Store User Data Policy, including its Limited Use

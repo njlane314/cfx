@@ -1,5 +1,5 @@
 #define LOCAL
-#include "debug.hpp"
+#include "cp/debug.hpp"
 
 #include <cassert>
 #include <sstream>
@@ -18,7 +18,7 @@ int main() {
         'x',
         {4, 5},
     };
-    debug("values, record", values, record);
+    cp::debug("values, record", values, record);
     cp::debug("message", std::string{"hello"});
 
     std::cerr.rdbuf(previous);

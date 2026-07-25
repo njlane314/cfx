@@ -1,15 +1,13 @@
 #include "compiler.hpp"
 
 #include "bundle.hpp"
+#include "file.hpp"
 #include "hash.hpp"
 #include "problem.hpp"
 #include "process.hpp"
 
-#include <algorithm>
 #include <cstdlib>
-#include <fstream>
 #include <iomanip>
-#include <iterator>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -43,15 +41,9 @@ std::string sanitize(std::string value) {
     return value.empty() ? "source" : value;
 }
 
-std::vector<std::string> compile_flags(bool checked, bool local) {
+std::vector<std::string> compile_flags(const std::string& standard, bool checked, bool local) {
     std::vector<std::string> flags{
-        "-std=" + configured_standard(),
-        "-pipe",
-        "-Wall",
-        "-Wextra",
-        "-Wshadow",
-        "-Wformat=2",
-        "-pthread",
+        "-std=" + standard, "-pipe", "-Wall", "-Wextra", "-Wshadow", "-Wformat=2", "-pthread",
     };
     if (local) {
         flags.push_back("-DLOCAL");
@@ -85,8 +77,8 @@ std::vector<std::string> compile_flags(bool checked, bool local) {
 }
 
 std::string join_fingerprint(const std::string& source, const std::vector<std::string>& compiler,
-                             const std::vector<std::string>& flags,
-                             const std::filesystem::path& include_root) {
+                             const std::string& standard, const std::vector<std::string>& flags,
+                             bool checked) {
     std::string fingerprint = source;
     const auto append = [&](const std::string& value) {
         fingerprint.push_back('\0');
@@ -98,53 +90,14 @@ std::string join_fingerprint(const std::string& source, const std::vector<std::s
     std::vector<std::string> version_command = compiler;
     version_command.push_back("--version");
     const CaptureResult version = capture_process(version_command);
+    append(std::to_string(version.status));
     append(version.output);
+    append(standard);
+    append(checked ? "checked" : "unchecked");
     for (const std::string& flag : flags) {
         append(flag);
     }
-    for (const char* name : {"SDKROOT", "CPATH", "CPLUS_INCLUDE_PATH", "LIBRARY_PATH"}) {
-        append(std::string(name) + "=" + environment(name));
-    }
-    std::vector<std::filesystem::path> local_headers;
-    if (std::filesystem::is_directory(include_root)) {
-        for (const std::filesystem::directory_entry& entry :
-             std::filesystem::recursive_directory_iterator(include_root)) {
-            if (entry.is_regular_file()) {
-                local_headers.push_back(entry.path());
-            }
-        }
-    }
-    std::sort(local_headers.begin(), local_headers.end());
-    for (const std::filesystem::path& header : local_headers) {
-        append(std::filesystem::relative(header, include_root).generic_string());
-        std::ifstream input(header, std::ios::binary);
-        if (!input) {
-            throw std::runtime_error("cannot fingerprint local header: " + header.string());
-        }
-        const std::string contents{
-            std::istreambuf_iterator<char>(input),
-            std::istreambuf_iterator<char>(),
-        };
-        append(contents);
-    }
     return fingerprint;
-}
-
-void write_if_different(const std::filesystem::path& path, const std::string& content) {
-    if (std::filesystem::is_regular_file(path)) {
-        std::ifstream input(path, std::ios::binary);
-        const std::string current{
-            std::istreambuf_iterator<char>(input),
-            std::istreambuf_iterator<char>(),
-        };
-        if (current == content) {
-            return;
-        }
-    }
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output || !(output << content)) {
-        throw std::runtime_error("cannot write " + path.string());
-    }
 }
 
 } // namespace
@@ -170,9 +123,10 @@ BuildResult Builder::build_source(const std::filesystem::path& source,
 
     const std::string prepared = bundled_source(canonical);
     const std::vector<std::string> compiler = compiler_command();
-    const std::vector<std::string> flags = compile_flags(options.checked, options.local);
+    const std::string standard = configured_standard();
+    const std::vector<std::string> flags = compile_flags(standard, options.checked, options.local);
     const std::string digest =
-        content_digest(join_fingerprint(prepared, compiler, flags, root_ / "include"));
+        content_digest(join_fingerprint(prepared, compiler, standard, flags, options.checked));
 
     const std::filesystem::path cache = root_ / ".build" / "cache" / sanitize(cache_name);
     const std::filesystem::path sources = cache / "sources";
@@ -182,7 +136,7 @@ BuildResult Builder::build_source(const std::filesystem::path& source,
 
     const std::filesystem::path bundled = sources / (digest + ".cpp");
     const std::filesystem::path binary = binaries / digest;
-    write_if_different(bundled, prepared);
+    write_atomic(bundled, prepared);
 
     bool compiled = false;
     if (options.rebuild || !std::filesystem::is_regular_file(binary)) {
@@ -190,8 +144,6 @@ BuildResult Builder::build_source(const std::filesystem::path& source,
             binaries / ("." + digest + "." + std::to_string(::getpid()) + ".tmp");
         std::vector<std::string> command = compiler;
         command.insert(command.end(), flags.begin(), flags.end());
-        command.push_back("-I");
-        command.push_back((root_ / "include").string());
         command.push_back(bundled.string());
         command.push_back("-o");
         command.push_back(temporary.string());
@@ -237,7 +189,7 @@ std::string format_bytes(std::uintmax_t bytes) {
 }
 
 std::string configured_standard() {
-    return environment("STD", "gnu++20");
+    return environment("CFX_STD", "c++20");
 }
 
 } // namespace cfx

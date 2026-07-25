@@ -1,4 +1,5 @@
 #include "cfx/browser.hpp"
+#include "cfx/browser_http.hpp"
 #include "cfx/codeforces.hpp"
 #include "cfx/companion.hpp"
 #include "cfx/compiler.hpp"
@@ -12,14 +13,17 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -46,6 +50,66 @@ class TemporaryDirectory {
 
   private:
     fs::path path_;
+};
+
+void check(bool condition, const std::string& message);
+
+class SubmissionApiServer {
+  public:
+    explicit SubmissionApiServer(std::vector<std::string> responses)
+        : responses_(std::move(responses)), worker_([this] { run(); }) {}
+
+    ~SubmissionApiServer() {
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(server_.port());
+    }
+
+    void wait() {
+        worker_.join();
+        if (error_) {
+            std::rethrow_exception(error_);
+        }
+    }
+
+  private:
+    void run() {
+        try {
+            for (const std::string& body : responses_) {
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                std::optional<cfx::browser_http::Connection> accepted =
+                    server_.accept_until(deadline, std::chrono::seconds(1));
+                check(accepted.has_value(), "Codeforces API fixture timed out");
+                cfx::browser_http::Connection connection = std::move(*accepted);
+                const cfx::browser_http::Request request = connection.read(
+                    deadline, [](const cfx::browser_http::RequestHead& head) {
+                        check(head.method == "GET", "Codeforces API fixture expected GET");
+                        check(head.target.starts_with("/contest.status?contestId=99993&handle=panicsort&"),
+                              "Codeforces API fixture received the wrong query");
+                        check(head.content_length.value_or(0) == 0,
+                              "Codeforces API fixture received a request body");
+                        return std::size_t{0};
+                    });
+                (void)request;
+                connection.send(cfx::browser_http::Response{
+                    200,
+                    {{"Content-Type", "application/json"}},
+                    body,
+                });
+            }
+        } catch (...) {
+            error_ = std::current_exception();
+        }
+    }
+
+    cfx::browser_http::Server server_;
+    std::vector<std::string> responses_;
+    std::thread worker_;
+    std::exception_ptr error_;
 };
 
 void write(const fs::path& path, const std::string& value) {
@@ -96,6 +160,80 @@ void test_json_and_codeforces() {
             (void)cfx::parse_contest_indexes(R"({"status":"FAILED","comment":"bad contest"})");
         },
         "failed API responses must throw");
+
+    const auto missing = cfx::parse_submission_status(
+        R"({"status":"OK","result":[]})", "99993", "C", "panicsort", "123456789");
+    check(!missing.found && !missing.terminal, "submission may take time to enter the API");
+
+    const auto testing = cfx::parse_submission_status(
+        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"PanicSort"}]},"verdict":"TESTING"}]})",
+        "99993", "C", "panicsort", "123456789");
+    check(testing.found && !testing.terminal && testing.verdict == "TESTING",
+          "testing submission remains pending");
+
+    const auto tle = cfx::parse_submission_status(
+        R"({"status":"OK","result":[{"id":111},{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"panicsort"}]},)"
+        R"("verdict":"TIME_LIMIT_EXCEEDED","testset":"TESTS","passedTestCount":2,)"
+        R"("timeConsumedMillis":1000,"memoryConsumedBytes":204800}]})",
+        "99993", "C", "panicsort", "123456789");
+    check(tle.terminal && tle.verdict_text == "Time Limit Exceeded" &&
+              tle.passed_test_count == 2 && tle.time_consumed_millis == 1000 &&
+              tle.memory_consumed_bytes == 204800,
+          "terminal API verdict carries official metrics");
+
+    const auto pretests = cfx::parse_submission_status(
+        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"OK",)"
+        R"("testset":"PRETESTS","passedTestCount":5,"timeConsumedMillis":10,)"
+        R"("memoryConsumedBytes":1024}]})",
+        "99993", "C", "panicsort", "123456789");
+    check(pretests.verdict_text == "Accepted (pretests)", "pretest acceptance stays explicit");
+
+    check_throws(
+        [] {
+            (void)cfx::parse_submission_status(
+                R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+                R"("problem":{"contestId":99993,"index":"C"},)"
+                R"("author":{"members":[{"handle":"someone_else"}]},"verdict":"TESTING"}]})",
+                "99993", "C", "panicsort", "123456789");
+        },
+        "submission API record must match the confirmed author");
+    check_throws(
+        [] {
+            (void)cfx::parse_submission_status(
+                R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+                R"("problem":{"contestId":99993,"index":"C"},)"
+                R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"OK",)"
+                R"("testset":"TESTS","passedTestCount":1.5,"timeConsumedMillis":10,)"
+                R"("memoryConsumedBytes":1024}]})",
+                "99993", "C", "panicsort", "123456789");
+        },
+        "submission API metrics must be integers");
+}
+
+void test_codeforces_poll_interval() {
+    SubmissionApiServer api({
+        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"OK",)"
+        R"("testset":"TESTS","passedTestCount":20,"timeConsumedMillis":46,)"
+        R"("memoryConsumedBytes":102400}]})",
+    });
+    ::setenv("CFX_API_BASE", api.base_url().c_str(), 1);
+    const auto started = std::chrono::steady_clock::now();
+    const auto status = cfx::poll_submission_status(
+        "99993", "C", "panicsort", "123456789", started + std::chrono::seconds(1),
+        std::chrono::milliseconds(25));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    api.wait();
+    ::unsetenv("CFX_API_BASE");
+    check(status.terminal && elapsed >= std::chrono::milliseconds(25),
+          "first official API poll respects the rate-limit interval");
 }
 
 void test_process_and_normalization(const fs::path& root, const fs::path& executable) {
@@ -192,7 +330,8 @@ void test_process_and_normalization(const fs::path& root, const fs::path& execut
 
 void test_build_cache(const fs::path& root) {
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 7\n");
-    write(root / "solution.cpp", "#include <value.hpp>\n"
+    write(root / "include" / "unused.hpp", "#pragma once\n#define UNUSED 1\n");
+    write(root / "solution.cpp", "#include \"value.hpp\"\n"
                                  "int main() { return VALUE == 7 ? 0 : 1; }\n");
     const cfx::Builder builder(root);
     const cfx::BuildResult first = builder.build_source(root / "solution.cpp", "cache-test");
@@ -200,6 +339,11 @@ void test_build_cache(const fs::path& root) {
     const cfx::BuildResult second = builder.build_source(root / "solution.cpp", "cache-test");
     check(!second.compiled, "unchanged build uses cache");
     check(first.digest == second.digest, "unchanged digest is stable");
+
+    write(root / "include" / "unused.hpp", "#pragma once\n#define UNUSED 2\n");
+    const cfx::BuildResult unused = builder.build_source(root / "solution.cpp", "cache-test");
+    check(!unused.compiled && unused.digest == first.digest,
+          "unused-header edit preserves the exact cache key");
 
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 8\n");
     const cfx::BuildResult third = builder.build_source(root / "solution.cpp", "cache-test");
@@ -212,6 +356,29 @@ void test_build_cache(const fs::path& root) {
     const cfx::BuildResult submission = builder.build_source(
         root / "submission.cpp", "submission-mode", cfx::BuildOptions{true, false, false});
     check(submission.compiled, "submission mode compiles without LOCAL");
+
+    const char* old_cfx_standard = std::getenv("CFX_STD");
+    const char* old_standard = std::getenv("STD");
+    const std::optional<std::string> saved_cfx_standard =
+        old_cfx_standard == nullptr ? std::nullopt
+                                    : std::optional<std::string>(old_cfx_standard);
+    const std::optional<std::string> saved_standard =
+        old_standard == nullptr ? std::nullopt : std::optional<std::string>(old_standard);
+    ::unsetenv("CFX_STD");
+    ::setenv("STD", "c++17", 1);
+    check(cfx::configured_standard() == "c++20", "legacy STD does not configure compilation");
+    ::setenv("CFX_STD", "c++23", 1);
+    check(cfx::configured_standard() == "c++23", "CFX_STD configures compilation");
+    if (saved_cfx_standard) {
+        (void)::setenv("CFX_STD", saved_cfx_standard->c_str(), 1);
+    } else {
+        (void)::unsetenv("CFX_STD");
+    }
+    if (saved_standard) {
+        (void)::setenv("STD", saved_standard->c_str(), 1);
+    } else {
+        (void)::unsetenv("STD");
+    }
 }
 
 void test_companion_import(const fs::path& root) {
@@ -253,7 +420,7 @@ void test_companion_import(const fs::path& root) {
 
 void test_problem_limits_and_verdicts(const fs::path& root) {
     const cfx::Problem problem("89", "A", root);
-    write(problem.preferred_solution_path(),
+    write(problem.solution_path(),
           "#include <iostream>\n"
           "#include <string>\n"
           "#include <unistd.h>\n"
@@ -300,9 +467,9 @@ void test_problem_limits_and_verdicts(const fs::path& root) {
               override_summary.limits.memory_limit_bytes == 512U * 1024U * 1024U,
           "explicit test limits override problem metadata");
 
-    const cfx::Problem legacy("89", "B", root);
-    check(cfx::load_problem_limits(legacy).time_limit == std::chrono::seconds(5),
-          "missing metadata uses the legacy time fallback");
+    const cfx::Problem without_metadata("89", "B", root);
+    check(cfx::load_problem_limits(without_metadata).time_limit == std::chrono::seconds(5),
+          "missing metadata uses the default time limit");
     write(problem.directory() / "problem.json",
           "{\"id\":\"89A\",\"timeLimitMs\":0,\"memoryLimitMb\":256}\n");
     check_throws([&] { (void)cfx::load_problem_limits(problem); },
@@ -311,7 +478,7 @@ void test_problem_limits_and_verdicts(const fs::path& root) {
 
 void test_submission_preparation(const fs::path& root) {
     const cfx::Problem problem("88", "A", root);
-    write(problem.preferred_solution_path(),
+    write(problem.solution_path(),
           "#include <iostream>\n"
           "#ifdef LOCAL\n"
           "constexpr bool local_build = true;\n"
@@ -338,12 +505,12 @@ void test_submission_preparation(const fs::path& root) {
           "submission artifact name contains hash");
 
     const cfx::Problem untested("88", "B", root);
-    write(untested.preferred_solution_path(), "int main() {}\n");
+    write(untested.solution_path(), "int main() {}\n");
     check_throws([&] { (void)cfx::prepare_submission(root, untested); },
                  "submission requires at least one complete test pair");
 
     const cfx::Problem slow("88", "C", root);
-    write(slow.preferred_solution_path(), "#include <unistd.h>\nint main() { for (;;) ::pause(); }\n");
+    write(slow.solution_path(), "#include <unistd.h>\nint main() { for (;;) ::pause(); }\n");
     write(slow.samples_path() / "01.in", "\n");
     write(slow.samples_path() / "01.out", "\n");
     write(slow.directory() / "problem.json",
@@ -364,6 +531,7 @@ void test_browser_submission_states() {
     options.request_timeout = std::chrono::seconds(1);
     options.connect_timeout = std::chrono::seconds(3);
     options.wait_timeout = std::chrono::seconds(5);
+    options.verdict_poll_interval = std::chrono::milliseconds(10);
     options.extension_id = "abcdefghijklmnopabcdefghijklmnop";
     const cfx::BrowserSubmitRequest request{
         "https://codeforces.com/problemset/submit",
@@ -417,13 +585,27 @@ void test_browser_submission_states() {
     }
     check(reported_unknown, "uncertain browser result is not reported as a safe rejection");
 
+    SubmissionApiServer api({
+        R"({"status":"OK","result":[]})",
+        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"TESTING"}]})",
+        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"panicsort"}]},)"
+        R"("verdict":"TIME_LIMIT_EXCEEDED","testset":"TESTS","passedTestCount":2,)"
+        R"("timeConsumedMillis":1000,"memoryConsumedBytes":204800}]})",
+    });
+    ::setenv("CFX_API_BASE", api.base_url().c_str(), 1);
     ::setenv("CFX_TEST_CONNECTOR_MODE", "tle-result", 1);
     const cfx::BrowserSubmitReceipt tle = cfx::submit_in_browser(request, options);
+    api.wait();
     check(tle.submission_id == "123456789" && tle.verdict == "TIME_LIMIT_EXCEEDED" &&
               tle.verdict_text == "Time Limit Exceeded" && tle.passed_test_count == 2 &&
               tle.time_consumed_millis == 1000 && tle.memory_consumed_bytes == 204800 &&
-              tle.judging_wait_millis == 2400,
+              tle.judging_wait_millis >= 2000 && tle.judging_wait_millis < 8000,
           "terminal judge failure is returned with complete judge details");
+    ::unsetenv("CFX_API_BASE");
     ::unsetenv("CFX_TEST_CONNECTOR_MODE");
 }
 
@@ -477,6 +659,7 @@ int main(int argc, char** argv) {
     try {
         TemporaryDirectory temporary;
         test_json_and_codeforces();
+        test_codeforces_poll_interval();
         test_process_and_normalization(temporary.path(), argv[0]);
         test_build_cache(temporary.path() / "build");
         test_companion_import(temporary.path() / "companion");

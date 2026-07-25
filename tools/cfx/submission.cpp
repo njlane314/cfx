@@ -2,14 +2,13 @@
 
 #include "codeforces.hpp"
 #include "compiler.hpp"
+#include "file.hpp"
 #include "hash.hpp"
 #include "judge.hpp"
 #include "problem.hpp"
 #include "process.hpp"
 
 #include <cstdlib>
-#include <fstream>
-#include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <unistd.h>
@@ -19,23 +18,6 @@ namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
-
-std::string read_file(const fs::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("cannot read " + path.string());
-    }
-    std::ostringstream output;
-    output << input.rdbuf();
-    return output.str();
-}
-
-void write_file(const fs::path& path, const std::string& value) {
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output || !(output << value)) {
-        throw std::runtime_error("cannot write " + path.string());
-    }
-}
 
 std::string language_name(std::string standard) {
     if (standard == "gnu++20" || standard == "c++20") {
@@ -64,13 +46,13 @@ bool executable(std::string_view name) {
         return ::access(std::string(name).c_str(), X_OK) == 0;
     }
     const char* path_environment = std::getenv("PATH");
-    const std::string_view path = path_environment == nullptr ? std::string_view() : path_environment;
+    const std::string_view path =
+        path_environment == nullptr ? std::string_view() : path_environment;
     std::size_t start = 0;
     while (start <= path.size()) {
         const std::size_t separator = path.find(':', start);
-        const std::string_view directory =
-            path.substr(start, separator == std::string_view::npos ? path.size() - start
-                                                                   : separator - start);
+        const std::string_view directory = path.substr(
+            start, separator == std::string_view::npos ? path.size() - start : separator - start);
         const fs::path candidate =
             (directory.empty() ? fs::current_path() : fs::path(directory)) / name;
         if (::access(candidate.c_str(), X_OK) == 0) {
@@ -111,8 +93,7 @@ std::vector<std::string> clipboard_command() {
     if (!wayland && !x11 && executable("wl-copy")) {
         return {"wl-copy"};
     }
-    throw std::runtime_error(
-        "no clipboard command found; install wl-clipboard, xclip, or xsel");
+    throw std::runtime_error("no clipboard command found; install wl-clipboard, xclip, or xsel");
 #endif
 }
 
@@ -134,15 +115,15 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
 
     Builder builder(root);
     const BuildResult checked = builder.build_problem(problem, BuildOptions{true, rebuild, false});
-    if (read_file(tests.build.bundled_source) != read_file(checked.bundled_source)) {
+    if (read_text(tests.build.bundled_source) != read_text(checked.bundled_source)) {
         throw std::runtime_error("submission stopped: source changed while tests were running");
     }
-    const std::string source = read_file(checked.bundled_source);
+    const std::string source = read_text(checked.bundled_source);
     const std::string hash = content_digest(source);
-    const fs::path directory = root / ".build" / "submissions";
+    const fs::path directory = root / ".cfx" / "submissions";
     fs::create_directories(directory);
     const fs::path artifact = directory / (problem.id() + "-" + hash.substr(0, 16) + ".cpp");
-    write_file(artifact, source);
+    write_atomic(artifact, source);
 
     return SubmissionArtifact{
         artifact,

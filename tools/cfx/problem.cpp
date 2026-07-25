@@ -12,7 +12,7 @@ namespace {
 namespace fs = std::filesystem;
 
 const std::regex kCanonical(R"(^([0-9]+)([A-Za-z][A-Za-z0-9]*)$)");
-const std::regex kLegacy(R"(^([A-Za-z][A-Za-z0-9]*)\.([0-9]+)$)");
+const std::regex kAlternate(R"(^([A-Za-z][A-Za-z0-9]*)\.([0-9]+)$)");
 const std::regex
     kProblemsetUrl(R"(codeforces\.com/problemset/problem/([0-9]+)/([A-Za-z][A-Za-z0-9]*))",
                    std::regex::icase);
@@ -70,31 +70,21 @@ std::vector<std::string> components(const fs::path& path) {
     return result;
 }
 
-std::optional<Problem> infer_new_layout(const fs::path& location, const fs::path& root) {
-    const auto parts = components(location);
-    for (std::size_t i = 0; i + 3 < parts.size(); ++i) {
-        if (parts[i] == "problems" && parts[i + 1] == "cf" && valid_contest(parts[i + 2]) &&
-            valid_index(parts[i + 3])) {
-            return Problem(parts[i + 2], parts[i + 3], root);
+bool is_beneath(const fs::path& path, const fs::path& root) {
+    auto path_part = path.begin();
+    for (auto root_part = root.begin(); root_part != root.end(); ++root_part, ++path_part) {
+        if (path_part == path.end() || *path_part != *root_part) {
+            return false;
         }
     }
-    return std::nullopt;
+    return true;
 }
 
-std::optional<Problem> infer_legacy_layout(const fs::path& location, const fs::path& root) {
-    const auto parts = components(location);
-    for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-        if (parts[i] != "solutions" && parts[i] != "tests") {
-            continue;
-        }
-        auto name = parts[i + 1];
-        if (parts[i] == "solutions" && name.ends_with(".cpp")) {
-            name.resize(name.size() - 4);
-        }
-        std::smatch match;
-        if (std::regex_match(name, match, kLegacy)) {
-            return Problem(match[2].str(), match[1].str(), root);
-        }
+std::optional<Problem> infer_canonical_layout(const fs::path& location, const fs::path& root) {
+    const auto parts = components(location.lexically_relative(root));
+    if (parts.size() >= 4 && parts[0] == "problems" && parts[1] == "cf" &&
+        valid_contest(parts[2]) && valid_index(parts[3])) {
+        return Problem(parts[2], parts[3], root);
     }
     return std::nullopt;
 }
@@ -116,7 +106,7 @@ Problem Problem::parse(std::string_view value, const fs::path& root) {
     if (std::regex_match(token, match, kCanonical)) {
         return Problem(match[1].str(), match[2].str(), root);
     }
-    if (std::regex_match(token, match, kLegacy)) {
+    if (std::regex_match(token, match, kAlternate)) {
         return Problem(match[2].str(), match[1].str(), root);
     }
     if (std::regex_search(token, match, kProblemsetUrl) ||
@@ -147,12 +137,11 @@ Problem Problem::parse(std::string_view index, std::string_view contest_id, cons
 std::optional<Problem> Problem::infer(const fs::path& location, const fs::path& root) {
     const auto normalized_root = normalized_absolute(root);
     const auto absolute_location = location.is_absolute() ? location : normalized_root / location;
-    const auto normalized_location = absolute_location.lexically_normal();
-
-    if (const auto problem = infer_new_layout(normalized_location, normalized_root)) {
-        return problem;
+    const auto normalized_location = normalized_absolute(absolute_location);
+    if (!is_beneath(normalized_location, normalized_root)) {
+        return std::nullopt;
     }
-    return infer_legacy_layout(normalized_location, normalized_root);
+    return infer_canonical_layout(normalized_location, normalized_root);
 }
 
 const std::string& Problem::contest_id() const noexcept {
@@ -167,30 +156,12 @@ std::string Problem::id() const {
     return contest_id_ + index_;
 }
 
-std::string Problem::legacy_id() const {
-    return index_ + "." + contest_id_;
-}
-
 fs::path Problem::directory() const {
     return root_ / "problems" / "cf" / contest_id_ / index_;
 }
 
-fs::path Problem::preferred_solution_path() const {
-    return directory() / "solution.cpp";
-}
-
-fs::path Problem::legacy_solution_path() const {
-    return root_ / "solutions" / (legacy_id() + ".cpp");
-}
-
 fs::path Problem::solution_path() const {
-    if (fs::is_regular_file(preferred_solution_path())) {
-        return preferred_solution_path();
-    }
-    if (fs::is_regular_file(legacy_solution_path())) {
-        return legacy_solution_path();
-    }
-    return preferred_solution_path();
+    return directory() / "solution.cpp";
 }
 
 fs::path Problem::samples_path() const {
@@ -205,23 +176,8 @@ fs::path Problem::stress_path() const {
     return directory() / "stress";
 }
 
-fs::path Problem::legacy_tests_path() const {
-    return root_ / "tests" / legacy_id();
-}
-
 std::vector<fs::path> Problem::test_directories() const {
-    if (uses_new_layout()) {
-        std::vector<fs::path> directories{samples_path(), cases_path()};
-        if (fs::is_directory(legacy_tests_path())) {
-            directories.push_back(legacy_tests_path());
-        }
-        return directories;
-    }
-    return {legacy_tests_path()};
-}
-
-bool Problem::uses_new_layout() const {
-    return fs::is_regular_file(preferred_solution_path());
+    return {samples_path(), cases_path()};
 }
 
 fs::path find_workspace_root(const fs::path& start) {

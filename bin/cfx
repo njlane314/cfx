@@ -2,92 +2,28 @@
 set -euo pipefail
 
 script=$0
-while [ -L "$script" ]; do
-    script_dir=$(cd -P "$(dirname "$script")" >/dev/null 2>&1 && pwd)
-    script_target=$(readlink "$script")
-    case $script_target in
-        /*) script=$script_target ;;
-        *)  script=$script_dir/$script_target ;;
-    esac
+while [[ -L $script ]]; do
+    directory=$(cd -P "$(dirname "$script")" >/dev/null 2>&1 && pwd)
+    target=$(readlink "$script")
+    [[ $target == /* ]] && script=$target || script=$directory/$target
 done
-
 root=$(cd -P "$(dirname "$script")/.." >/dev/null 2>&1 && pwd)
-source_dir=$root/tools/cfx
-build_dir=$root/.build/tools
-executable=$build_dir/cfx
-configuration_file=$build_dir/cfx.config
 
-if [ -n "${CFX_CXX:-}" ]; then
+if [[ -n ${CFX_CXX:-} ]]; then
     compiler=$CFX_CXX
-elif [ -n "${CXX:-}" ]; then
+elif [[ -n ${CXX:-} ]]; then
     compiler=$CXX
-elif [ -x /opt/homebrew/opt/llvm/bin/clang++ ]; then
+elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
     compiler=/opt/homebrew/opt/llvm/bin/clang++
-elif [ -x /usr/local/opt/llvm/bin/clang++ ]; then
+elif [[ -x /usr/local/opt/llvm/bin/clang++ ]]; then
     compiler=/usr/local/opt/llvm/bin/clang++
 else
     compiler=c++
 fi
-standard=${CFX_STD:-c++20}
-configuration=$compiler'|'$standard
 
-needs_build=false
-if [ ! -x "$executable" ]; then
-    needs_build=true
-elif [ ! -f "$configuration_file" ] ||
-    [ "$(sed -n '1p' "$configuration_file")" != "$configuration" ]; then
-    needs_build=true
-elif [ "$script" -nt "$executable" ]; then
-    needs_build=true
-elif find "$source_dir" -type f \
-    \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
-    -newer "$executable" -print -quit | grep -q .; then
-    needs_build=true
-fi
-
-if [ "$needs_build" = true ]; then
-    sources=("$source_dir"/*.cpp)
-    if [ ! -e "${sources[0]}" ]; then
-        echo "cfx: no C++ sources found in $source_dir" >&2
-        exit 1
-    fi
-
-    mkdir -p "$build_dir"
-    echo "cfx: building C++ command" >&2
-    temporary=$executable.tmp.$$
-    trap 'rm -f "$temporary"' EXIT HUP INT TERM
-
-    if [ -x "$compiler" ]; then
-        compiler_command=("$compiler")
-    else
-        IFS=' ' read -r -a compiler_command <<<"$compiler"
-    fi
-    if [ "${#compiler_command[@]}" -eq 0 ]; then
-        echo "cfx: compiler command is empty" >&2
-        exit 1
-    fi
-
-    "${compiler_command[@]}" \
-        "-std=$standard" \
-        -Wall \
-        -Wextra \
-        -Wpedantic \
-        -pthread \
-        "-I$root/include" \
-        "-I$root/tools" \
-        "-I$source_dir" \
-        "${sources[@]}" \
-        -o "$temporary"
-
-    mv "$temporary" "$executable"
-    configuration_temporary=$configuration_file.tmp.$$
-    printf '%s\n' "$configuration" >"$configuration_temporary"
-    mv "$configuration_temporary" "$configuration_file"
-    trap - EXIT HUP INT TERM
-fi
-
+export CXX=$compiler
+export CFX_STD=${CFX_STD:-c++20}
 export CFX_ROOT=$root
-if [ -z "${CXX:-}" ]; then
-    export CXX=$compiler
-fi
-exec "$executable" "$@"
+
+make --no-print-directory -s -C "$root" build
+exec "$root/.build/tools/cfx" "$@"
