@@ -1,0 +1,5 @@
+-std=gnu++20
+-Iinclude
+-Itools
+-Itools/cfprobs
+-DLOCAL
