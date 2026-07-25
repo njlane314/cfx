@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string>
 
-namespace cfprobs {
+namespace cfx {
 
 class Problem;
 
@@ -21,4 +21,4 @@ SubmissionArtifact prepare_submission(const std::filesystem::path& root, const P
 
 void copy_submission_to_clipboard(const SubmissionArtifact& artifact);
 
-} // namespace cfprobs
+} // namespace cfx

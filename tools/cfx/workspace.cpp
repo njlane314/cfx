@@ -1,4 +1,4 @@
-#include "cfprobs/workspace.hpp"
+#include "cfx/workspace.hpp"
 
 #include <array>
 #include <fstream>
@@ -6,7 +6,7 @@
 #include <utility>
 #include <unistd.h>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
@@ -152,13 +152,13 @@ std::optional<Problem> current_problem(const fs::path& root) {
     const auto length = static_cast<std::size_t>(input.gcount());
     if (length == buffer.size()) {
         throw WorkspaceError("invalid current problem record '" + path.string() +
-                             "'; run probs PROBLEM again");
+                             "'; run cfx PROBLEM again");
     }
 
     std::string contents(buffer.data(), length);
     if (contents.empty() || contents.back() != '\n') {
         throw WorkspaceError("invalid current problem record '" + path.string() +
-                             "'; run probs PROBLEM again");
+                             "'; run cfx PROBLEM again");
     }
     contents.pop_back();
     try {
@@ -169,8 +169,8 @@ std::optional<Problem> current_problem(const fs::path& root) {
         return problem;
     } catch (const ProblemError&) {
         throw WorkspaceError("invalid current problem record '" + path.string() +
-                             "'; run probs PROBLEM again");
+                             "'; run cfx PROBLEM again");
     }
 }
 
-} // namespace cfprobs
+} // namespace cfx

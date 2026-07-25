@@ -1,22 +1,50 @@
 #pragma once
 
 #include "compiler.hpp"
+#include "process.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 
 class Problem;
+
+struct ProblemLimits {
+    std::chrono::milliseconds time_limit{5000};
+    std::optional<std::uint64_t> memory_limit_bytes;
+    bool time_from_metadata = false;
+    bool memory_from_metadata = false;
+};
+
+enum class CaseVerdict {
+    accepted,
+    wrong_answer,
+    time_limit_exceeded,
+    memory_limit_exceeded,
+    output_limit_exceeded,
+    runtime_error,
+    missing_expected_output,
+};
+
+struct TestCaseResult {
+    std::string name;
+    CaseVerdict verdict = CaseVerdict::runtime_error;
+    ProcessResult process;
+};
 
 struct TestOptions {
     bool checked = false;
     bool rebuild = false;
-    std::chrono::milliseconds timeout{5000};
+    std::optional<std::chrono::milliseconds> timeout;
     bool concise = false;
+    std::optional<std::uint64_t> memory_limit_bytes;
+    std::optional<std::uint64_t> output_limit_bytes{64U * 1024U * 1024U};
+    bool submission_profile = false;
 };
 
 struct TestSummary {
@@ -24,6 +52,11 @@ struct TestSummary {
     int passed = 0;
     int total = 0;
     std::chrono::milliseconds elapsed{0};
+    std::chrono::milliseconds max_wall_time{0};
+    std::chrono::milliseconds max_cpu_time{0};
+    std::uint64_t peak_memory_bytes = 0;
+    ProblemLimits limits;
+    std::vector<TestCaseResult> cases;
 
     [[nodiscard]] bool success() const noexcept {
         return passed == total;
@@ -70,5 +103,7 @@ class Judge {
 
 std::string normalize_output(const std::string& output);
 std::string format_duration(std::chrono::milliseconds duration);
+std::string verdict_name(CaseVerdict verdict);
+ProblemLimits load_problem_limits(const Problem& problem);
 
-} // namespace cfprobs
+} // namespace cfx

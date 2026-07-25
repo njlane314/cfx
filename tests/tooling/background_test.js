@@ -34,7 +34,7 @@ const sender = {
   url: "https://codeforces.com/contest/71/problem/A"
 };
 const request = {
-  type: "cfprobs-local-request",
+  type: "cfx-local-request",
   port: 32123,
   token: "a".repeat(64),
   route: "fetch",
@@ -52,6 +52,17 @@ async function main() {
   const manifest = JSON.parse(
     fs.readFileSync(path.resolve(__dirname, "../../browser/manifest.json"), "utf8")
   );
+  const contentScriptMatches = manifest.content_scripts.flatMap(script => script.matches || []);
+  for (const match of [
+    "https://codeforces.com/problemset/status*",
+    "https://codeforces.com/contest/*/my*",
+    "https://codeforces.com/contest/*/status*",
+    "https://codeforces.com/contest/*/submission/*",
+    "https://codeforces.com/problemset/submission/*/*",
+    "https://codeforces.com/submissions/*"
+  ]) {
+    assert.ok(contentScriptMatches.includes(match), `missing content-script match: ${match}`);
+  }
   const expectedId = fs
     .readFileSync(path.resolve(__dirname, "../../browser/extension-id"), "utf8")
     .trim();
@@ -67,7 +78,7 @@ async function main() {
   assert.equal(requests[0].url, `http://127.0.0.1:32123/fetch/${"a".repeat(64)}`);
   assert.equal(requests[0].options.credentials, "omit");
   assert.equal(requests[0].options.body, request.body);
-  assert.equal(requests[0].options.headers["X-Cfprobs-Extension"], chrome.runtime.id);
+  assert.equal(requests[0].options.headers["X-Cfx-Extension"], chrome.runtime.id);
 
   const wrongOrigin = await send(request, {
     ...sender,
@@ -91,10 +102,32 @@ async function main() {
   );
   assert.equal(signInRedirect.ok, true);
 
+  const resultPages = [
+    "https://codeforces.com/problemset/status?my=on",
+    "https://codeforces.com/contest/71/my",
+    "https://codeforces.com/contest/71/status",
+    "https://codeforces.com/contest/71/submission/123456789",
+    "https://codeforces.com/problemset/submission/71/123456789",
+    "https://codeforces.com/submissions/panicsort"
+  ];
+  for (const url of resultPages) {
+    const response = await send(
+      {...request, route: "result", body: '{"ok":true}'},
+      {...sender, url}
+    );
+    assert.equal(response.ok, true, `result page was rejected: ${url}`);
+  }
+
+  const unrelatedPage = await send(
+    {...request, route: "result", body: '{"ok":true}'},
+    {...sender, url: "https://codeforces.com/settings/general"}
+  );
+  assert.equal(unrelatedPage.ok, false);
+
   const wrongRoute = await send({...request, route: "anything"});
   assert.equal(wrongRoute.ok, false);
   assert.match(wrongRoute.error, /route/);
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 3 + resultPages.length);
 
   console.log("background connector tests passed");
 }

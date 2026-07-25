@@ -15,7 +15,7 @@
 #include <system_error>
 #include <unistd.h>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 std::string environment(const char* name, const std::string& fallback = {}) {
@@ -72,13 +72,14 @@ std::vector<std::string> compile_flags(bool checked, bool local) {
         flags.push_back("-O2");
     }
 
-    const std::string custom = environment("CFPROBS_CXXFLAGS");
+    const std::string custom = environment("CFX_CXXFLAGS");
     if (!custom.empty()) {
         std::vector<std::string> additions = split_command_words(custom);
         flags.insert(flags.end(), additions.begin(), additions.end());
     }
     if (!local) {
         flags.push_back("-ULOCAL");
+        flags.push_back("-DONLINE_JUDGE");
     }
     return flags;
 }
@@ -239,4 +240,4 @@ std::string configured_standard() {
     return environment("STD", "gnu++20");
 }
 
-} // namespace cfprobs
+} // namespace cfx

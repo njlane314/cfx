@@ -1,8 +1,8 @@
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-PROBS := ./bin/probs
-PROBS_PATH := $(abspath $(PROBS))
+CFX := ./bin/cfx
+CFX_PATH := $(abspath $(CFX))
 TEST_RUNNER := tests/run.sh
 
 .DEFAULT_GOAL := help
@@ -18,23 +18,23 @@ help:
 	@echo '  make browser-package  build the Chrome Web Store ZIP'
 	@echo
 	@echo 'Installation:'
-	@echo '  make install      install probs'
+	@echo '  make install      install cfx'
 	@echo '  make clean        remove disposable build output'
 
 build:
-	$(PROBS) --help >/dev/null
+	$(CFX) --help >/dev/null
 
 test: build
 	bash $(TEST_RUNNER)
 
 lint:
-	bash -n $(PROBS) $(TEST_RUNNER) browser/package.sh
+	bash -n $(CFX) $(TEST_RUNNER) browser/package.sh
 	@if command -v node >/dev/null 2>&1; then \
 		node --check browser/background.js; \
 		node --check browser/connector.js; \
 		node -e 'JSON.parse(require("node:fs").readFileSync("browser/manifest.json", "utf8"))'; \
 	fi
-	$(PROBS) --help >/dev/null
+	$(CFX) --help >/dev/null
 
 verify: test lint
 
@@ -42,16 +42,16 @@ browser-package:
 	bash browser/package.sh
 
 install:
-	@test -x "$(PROBS_PATH)" || { echo 'missing executable: $(PROBS_PATH)' >&2; exit 1; }
+	@test -x "$(CFX_PATH)" || { echo 'missing executable: $(CFX_PATH)' >&2; exit 1; }
 	mkdir -p "$(DESTDIR)$(BINDIR)"
-	@dst="$(DESTDIR)$(BINDIR)/probs"; \
+	@dst="$(DESTDIR)$(BINDIR)/cfx"; \
 	target=$$(readlink "$$dst" 2>/dev/null || true); \
-	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && [ "$$target" != "$(PROBS_PATH)" ]; then \
+	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && [ "$$target" != "$(CFX_PATH)" ]; then \
 		echo "refusing to overwrite: $$dst" >&2; \
 		exit 1; \
 	fi; \
-	ln -sfn "$(PROBS_PATH)" "$$dst"
-	@for old in bundle run rerun new _local stress probe bench case fail _cf pick contest seen meta rank solved sample cc submit; do \
+	ln -sfn "$(CFX_PATH)" "$$dst"
+	@for old in probs bundle run rerun new _local stress probe bench case fail _cf pick contest seen meta rank solved sample cc submit; do \
 		dst="$(DESTDIR)$(BINDIR)/$$old"; \
 		target=$$(readlink "$$dst" 2>/dev/null || true); \
 		if [ "$$target" = "$(CURDIR)/bin/$$old" ]; then \
@@ -59,7 +59,7 @@ install:
 			echo "removed legacy link: $$dst"; \
 		fi; \
 	done
-	@echo 'installed $(BINDIR)/probs'
+	@echo 'installed $(BINDIR)/cfx'
 
 clean:
 	rm -rf .build

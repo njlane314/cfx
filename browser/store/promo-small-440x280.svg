@@ -10,7 +10,7 @@
     <path d="M24 29h10" fill="none" stroke="#50c878"
           stroke-linecap="round" stroke-width="4"/>
     <text x="58" y="31" fill="#f7f9fc" font-family="Arial, sans-serif"
-          font-size="25" font-weight="700">cf-probs</text>
+          font-size="25" font-weight="700">cfx</text>
   </g>
 
   <text x="32" y="117" fill="#f7f9fc" font-family="Arial, sans-serif"
@@ -20,10 +20,10 @@
 
   <rect x="32" y="181" width="166" height="44" rx="10" fill="#111827"/>
   <text x="50" y="210" fill="#50c878" font-family="Menlo, Consolas, monospace"
-        font-size="17">$ <tspan fill="#f7f9fc">probs 71A</tspan></text>
+        font-size="17">$ <tspan fill="#f7f9fc">cfx 71A</tspan></text>
   <rect x="210" y="181" width="198" height="44" rx="10" fill="#111827"/>
   <text x="228" y="210" fill="#50c878" font-family="Menlo, Consolas, monospace"
-        font-size="17">$ <tspan fill="#f7f9fc">probs submit</tspan></text>
+        font-size="17">$ <tspan fill="#f7f9fc">cfx submit</tspan></text>
 
   <text x="32" y="254" fill="#aeb8ca" font-family="Arial, sans-serif" font-size="14">
     Local tests. Exact bundle. Signed-in Chrome session.

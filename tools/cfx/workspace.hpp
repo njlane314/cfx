@@ -1,12 +1,12 @@
 #pragma once
 
-#include "cfprobs/problem.hpp"
+#include "cfx/problem.hpp"
 
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
 
-namespace cfprobs {
+namespace cfx {
 
 class WorkspaceError : public std::runtime_error {
   public:
@@ -32,7 +32,7 @@ class Workspace {
     std::filesystem::path root_;
 };
 
-// Store the problem selected by `probs PROBLEM` as disposable workspace state.
+// Store the problem selected by `cfx PROBLEM` as disposable workspace state.
 void remember_current_problem(
     const Problem& problem,
     const std::filesystem::path& root = std::filesystem::current_path());
@@ -41,4 +41,4 @@ void remember_current_problem(
 [[nodiscard]] std::optional<Problem> current_problem(
     const std::filesystem::path& root = std::filesystem::current_path());
 
-} // namespace cfprobs
+} // namespace cfx

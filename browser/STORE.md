@@ -6,7 +6,7 @@ Build the upload archive from the repository root:
 make browser-package
 ```
 
-The resulting `.build/browser/cf-probs-connector-<version>.zip` has
+The resulting `.build/browser/cfx-connector-<version>.zip` has
 `manifest.json` at its root and contains only runtime files.
 
 ## Release checklist
@@ -20,8 +20,8 @@ The resulting `.build/browser/cf-probs-connector-<version>.zip` has
 - [ ] 1280 x 800 screenshot: `browser/store/screenshot-1280x800.png`.
 - [ ] 440 x 280 small promo tile: `browser/store/promo-small-440x280.png`.
 - [ ] Privacy policy URL:
-  `https://github.com/njlane314/cf-probs/blob/main/browser/PRIVACY.md`.
-- [ ] Website URL: `https://github.com/njlane314/cf-probs`.
+  `<repository-url>/blob/main/browser/PRIVACY.md`.
+- [ ] Website URL: `<repository-url>`.
 - [ ] Data-use disclosures and permission justifications match the copy below.
 - [ ] Reviewer instructions are included and the final ZIP has been tested with
   **Load unpacked**.
@@ -45,11 +45,11 @@ this repository.
 
 Name:
 
-> cf-probs connector
+> cfx connector
 
 Summary:
 
-> Connect the local cf-probs workflow to Codeforces for sample import and submission.
+> Connect the local cfx workflow to Codeforces for sample import and submission.
 
 Category:
 
@@ -57,30 +57,30 @@ Category:
 
 Detailed description:
 
-> The cf-probs connector links explicit commands from the local cf-probs C++
+> The cfx connector links explicit commands from the local cfx C++
 > workbench to Codeforces in Chrome.
 >
-> Run `probs 71A` to create a workspace and import public problem metadata and
-> samples. Write and test the solution locally, then run `probs submit` to send
+> Run `cfx 71A` to create a workspace and import public problem metadata and
+> samples. Write and test the solution locally, then run `cfx submit` to send
 > the exact tested C++ bundle through your existing signed-in Codeforces tab.
 >
 > The extension has no popup and does nothing by itself. It responds only to a
 > short-lived, token-protected listener started on `127.0.0.1` by an explicit
-> cf-probs command. It has no analytics, advertising, remote code, account
+> cfx command. It has no analytics, advertising, remote code, account
 > storage, or developer-operated server. Codeforces credentials and session
 > cookies stay in Chrome.
 
 Single purpose:
 
-> Connect explicit cf-probs CLI actions to Codeforces pages: import public
+> Connect explicit cfx CLI actions to Codeforces pages: import public
 > problem samples into the local workbench and submit the exact locally tested
 > C++ source through the user's authenticated Codeforces session.
 
 Permission justification:
 
 - `codeforces.com`: read problem titles, limits, and samples after
-  `probs PROBLEM`; fill and post the submission selected by `probs submit`.
-- `127.0.0.1`: communicate with one short-lived, loopback-only `probs`
+  `cfx PROBLEM`; fill and post the submission selected by `cfx submit`.
+- `127.0.0.1`: communicate with one short-lived, loopback-only `cfx`
   listener protected by an unguessable operation token.
 
 Data disclosures: website content, browsing activity, form data, and
@@ -90,7 +90,7 @@ remote code.
 
 Privacy policy URL:
 
-> https://github.com/njlane314/cf-probs/blob/main/browser/PRIVACY.md
+> <repository-url>/blob/main/browser/PRIVACY.md
 
 Remote code:
 
@@ -100,8 +100,8 @@ Reviewer test instructions should link this repository and describe:
 
 ```text
 make install
-probs 71A
-probs submit
+cfx 71A
+cfx submit
 ```
 
 The reviewer must be signed in to Codeforces to exercise submission. A problem

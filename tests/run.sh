@@ -21,7 +21,7 @@ else
     IFS=' ' read -r -a compiler_command <<<"$compiler"
 fi
 
-build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfprobs-tests.XXXXXX")
+build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfx-tests.XXXXXX")
 build_dir=$(cd "$build_dir" && pwd -P)
 trap 'rm -rf "$build_dir"' EXIT
 
@@ -42,6 +42,7 @@ wait_for_log() {
 bash "$script_dir/library/run.sh"
 if command -v node >/dev/null 2>&1; then
     node "$script_dir/tooling/background_test.js"
+    node "$script_dir/tooling/connector_test.js"
 fi
 
 common_flags=(
@@ -53,20 +54,20 @@ common_flags=(
     -pthread
     "-I$repo_root/include"
     "-I$repo_root/tools"
-    "-I$repo_root/tools/cfprobs"
+    "-I$repo_root/tools/cfx"
 )
 
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
     "$script_dir/tooling/core_tests.cpp" \
-    "$repo_root/tools/cfprobs/problem.cpp" \
-    "$repo_root/tools/cfprobs/workspace.cpp" \
-    "$repo_root/tools/cfprobs/bundle.cpp" \
+    "$repo_root/tools/cfx/problem.cpp" \
+    "$repo_root/tools/cfx/workspace.cpp" \
+    "$repo_root/tools/cfx/bundle.cpp" \
     -o "$build_dir/core-tests"
 "$build_dir/core-tests"
 
 tool_sources=()
-for source in "$repo_root"/tools/cfprobs/*.cpp; do
+for source in "$repo_root"/tools/cfx/*.cpp; do
     if [[ $(basename "$source") != main.cpp ]]; then
         tool_sources+=("$source")
     fi
@@ -76,10 +77,10 @@ done
     "$script_dir/tooling/tool_tests.cpp" \
     "${tool_sources[@]}" \
     -o "$build_dir/tool-tests"
-CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-CFPROBS_TEST_BROWSER_LOG="$build_dir/tool-browser.log" \
-CFPROBS_TEST_SUBMISSION_PAYLOAD="$build_dir/tool-submission.json" \
-CFPROBS_CHROME_EXTENSION_ID=abcdefghijklmnopabcdefghijklmnop \
+CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+CFX_TEST_BROWSER_LOG="$build_dir/tool-browser.log" \
+CFX_TEST_SUBMISSION_PAYLOAD="$build_dir/tool-submission.json" \
+CFX_CHROME_EXTENSION_ID=abcdefghijklmnopabcdefghijklmnop \
     "$build_dir/tool-tests"
 
 sandbox=$build_dir/workspace
@@ -92,15 +93,15 @@ editor_log=$build_dir/editor.log
 submission_payload=$build_dir/submission.json
 clipboard_payload=$build_dir/clipboard.cpp
 test_extension_id=abcdefghijklmnopabcdefghijklmnop
-export CFPROBS_CHROME_EXTENSION_ID=$test_extension_id
+export CFX_CHROME_EXTENSION_ID=$test_extension_id
 start_output=$(
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-    CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
-    CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
-    CFPROBS_TEST_EDITOR_LOG="$editor_log" \
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+    CFX_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFX_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+    CFX_TEST_EDITOR_LOG="$editor_log" \
     EDITOR="$script_dir/tooling/fixtures/editor.sh" \
-        "$repo_root/bin/probs" --root "$sandbox" 99993C
+        "$repo_root/bin/cfx" --root "$sandbox" 99993C
 )
 grep -q 'Fetched 99993C — Browser bridge problem' <<<"$start_output"
 grep -q 'Imported 2 samples' <<<"$start_output"
@@ -115,43 +116,70 @@ grep -qx '99993C' "$sandbox/.build/current-problem"
 
 cp "$script_dir/tooling/fixtures/sum.cpp" "$bridge_problem_dir/solution.cpp"
 cp "$script_dir/tooling/fixtures/10.in" "$bridge_problem_dir/samples/01.in"
-CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
-CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
-CFPROBS_TEST_EDITOR_LOG="$editor_log" \
+CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+CFX_TEST_BROWSER_LOG="$browser_log" \
+CFX_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+CFX_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+CFX_TEST_EDITOR_LOG="$editor_log" \
 EDITOR="$script_dir/tooling/fixtures/editor.sh" \
-    "$repo_root/bin/probs" --root "$sandbox" 99993C >/dev/null
+    "$repo_root/bin/cfx" --root "$sandbox" 99993C >/dev/null
 cmp "$script_dir/tooling/fixtures/sum.cpp" "$bridge_problem_dir/solution.cpp"
 cmp "$script_dir/tooling/fixtures/02.in" "$bridge_problem_dir/samples/01.in"
 
 submit_output=$(
     cd "$sandbox"
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-    CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
-    CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
-        "$repo_root/bin/probs" --root "$sandbox" submit
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+    CFX_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFX_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+        "$repo_root/bin/cfx" --root "$sandbox" submit
 )
 grep -q '2/2 tests passed' <<<"$submit_output"
 grep -q 'Checked build passed' <<<"$submit_output"
 grep -q 'Submitted 99993C as GNU C++20' <<<"$submit_output"
-grep -q 'https://codeforces.com/contest/99993/submission/123456789' <<<"$submit_output"
-grep -q 'Verdict: TESTING' <<<"$submit_output"
+grep -q 'Submission: 123456789' <<<"$submit_output"
+grep -q 'URL: https://codeforces.com/contest/99993/submission/123456789' <<<"$submit_output"
+grep -q 'Verdict: Accepted' <<<"$submit_output"
+grep -q 'Tests passed: 20' <<<"$submit_output"
+grep -q 'Time: 46 ms' <<<"$submit_output"
+grep -q 'Memory: 100.0KiB' <<<"$submit_output"
+grep -q 'Judging wait: 1.300s' <<<"$submit_output"
 grep -q '"target":"99993C"' "$submission_payload"
 grep -q '"language":"GNU C++20"' "$submission_payload"
 grep -q '"source":' "$submission_payload"
 grep -q '#include' "$submission_payload"
 grep -q '^submit$' "$browser_log"
 
-"$repo_root/bin/probs" --root "$sandbox" get 99992A >/dev/null
+if tle_submit_output=$(
+    cd "$sandbox"
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+    CFX_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFX_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+    CFX_TEST_CONNECTOR_MODE=tle-result \
+        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
+); then
+    echo "remote TLE was reported as a successful command" >&2
+    exit 1
+else
+    tle_submit_status=$?
+fi
+[[ $tle_submit_status == 1 ]]
+grep -q 'Submission: 123456789' <<<"$tle_submit_output"
+grep -q 'Verdict: Time Limit Exceeded' <<<"$tle_submit_output"
+grep -q 'Tests passed: 2' <<<"$tle_submit_output"
+grep -q 'Time: 1000 ms' <<<"$tle_submit_output"
+grep -q 'Memory: 200.0KiB' <<<"$tle_submit_output"
+grep -q 'Judging wait: 2.400s' <<<"$tle_submit_output"
+
+"$repo_root/bin/cfx" --root "$sandbox" get 99992A >/dev/null
 conflict_problem_dir=$sandbox/problems/cf/99992/A
 : >"$browser_log"
 if conflict_output=$(
     cd "$conflict_problem_dir"
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-        "$repo_root/bin/probs" --root "$sandbox" submit 2>&1
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
 ); then
     echo "tooling test failed: submit accepted conflicting current problems" >&2
     exit 1
@@ -161,14 +189,20 @@ grep -q 'submission target is ambiguous: current directory is 99992A but current
 test ! -s "$browser_log"
 
 : >"$browser_log"
-manual_output=$(
+if manual_output=$(
     cd "$conflict_problem_dir"
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_CLIPBOARD="$script_dir/tooling/fixtures/clipboard.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-    CFPROBS_TEST_CLIPBOARD="$clipboard_payload" \
-        "$repo_root/bin/probs" --root "$sandbox" submit --manual 99993C
-)
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_CLIPBOARD="$script_dir/tooling/fixtures/clipboard.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+    CFX_TEST_CLIPBOARD="$clipboard_payload" \
+        "$repo_root/bin/cfx" --root "$sandbox" submit --manual 99993C 2>&1
+); then
+    echo "manual handoff was reported as an Accepted submission" >&2
+    exit 1
+else
+    manual_status=$?
+fi
+[[ $manual_status == 2 ]]
 grep -q '2/2 tests passed' <<<"$manual_output"
 grep -q 'Checked build passed' <<<"$manual_output"
 grep -q 'Copied tested bundle .* to the clipboard' <<<"$manual_output"
@@ -179,15 +213,21 @@ submission_artifact=$(find "$sandbox/.build/submissions" -name '99993C-*.cpp' -p
 cmp "$submission_artifact" "$clipboard_payload"
 
 : >"$browser_log"
-fallback_output=$(
+if fallback_output=$(
     cd "$bridge_problem_dir"
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_CLIPBOARD="$script_dir/tooling/fixtures/clipboard.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-    CFPROBS_TEST_CLIPBOARD="$clipboard_payload" \
-    CFPROBS_TEST_SKIP_CONNECTOR=1 \
-        "$repo_root/bin/probs" --root "$sandbox" submit
-)
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_CLIPBOARD="$script_dir/tooling/fixtures/clipboard.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+    CFX_TEST_CLIPBOARD="$clipboard_payload" \
+    CFX_TEST_SKIP_CONNECTOR=1 \
+        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
+); then
+    echo "connector fallback was reported as an Accepted submission" >&2
+    exit 1
+else
+    fallback_status=$?
+fi
+[[ $fallback_status == 2 ]]
 grep -q 'Chrome connector unavailable; using manual submission' <<<"$fallback_output"
 grep -q 'Copied tested bundle .* to the clipboard' <<<"$fallback_output"
 grep -q '^unavailable$' "$browser_log"
@@ -197,11 +237,11 @@ wait_for_log '^manual$' "$browser_log"
 cp "$script_dir/tooling/fixtures/wrong.cpp" "$bridge_problem_dir/solution.cpp"
 if (
     cd "$bridge_problem_dir"
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-    CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
-    CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
-        "$repo_root/bin/probs" --root "$sandbox" submit
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+    CFX_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFX_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+        "$repo_root/bin/cfx" --root "$sandbox" submit
 ) >/dev/null 2>&1; then
     echo "tooling test failed: submit accepted a failing solution" >&2
     exit 1
@@ -212,9 +252,9 @@ printf '99990A\n' >"$sandbox/.build/current-problem"
 : >"$browser_log"
 if stale_output=$(
     cd "$sandbox"
-    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
-    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
-        "$repo_root/bin/probs" --root "$sandbox" submit 2>&1
+    CFX_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFX_TEST_BROWSER_LOG="$browser_log" \
+        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
 ); then
     echo "tooling test failed: submit accepted a stale current problem" >&2
     exit 1
@@ -222,7 +262,7 @@ fi
 grep -q 'current problem 99990A has no solution' <<<"$stale_output"
 test ! -s "$browser_log"
 
-"$repo_root/bin/probs" --root "$sandbox" get 99991A |
+"$repo_root/bin/cfx" --root "$sandbox" get 99991A |
     grep -q 'created:'
 problem_dir=$sandbox/problems/cf/99991/A
 cp "$script_dir/tooling/fixtures/sum.cpp" "$problem_dir/solution.cpp"
@@ -237,9 +277,11 @@ cp "$script_dir/tooling/fixtures/brute.cpp" "$problem_dir/stress/brute.cpp"
 
 test_output=$(
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" test --checked
+    "$repo_root/bin/cfx" --root "$sandbox" test --checked
 )
 grep -q '3/3 passed' <<<"$test_output"
+grep -q 'limits: time 5.000s (fallback), memory unlimited, output 64.0MiB' <<<"$test_output"
+grep -q 'CPU, .* wall' <<<"$test_output"
 sample_02_line=$(grep -n 'samples/02.in' <<<"$test_output" | cut -d: -f1)
 sample_10_line=$(grep -n 'samples/10.in' <<<"$test_output" | cut -d: -f1)
 case_line=$(grep -n 'cases/overflow.in' <<<"$test_output" | cut -d: -f1)
@@ -248,10 +290,19 @@ if ((sample_02_line >= sample_10_line || sample_10_line >= case_line)); then
     exit 1
 fi
 
+if tiny_limit_output=$(
+    cd "$problem_dir"
+    "$repo_root/bin/cfx" --root "$sandbox" test --time-limit 0.0001 2>&1
+); then
+    echo "tooling test failed: sub-millisecond time limit was accepted" >&2
+    exit 1
+fi
+grep -q -- '--time-limit must be at least 0.001 seconds' <<<"$tiny_limit_output"
+
 cp "$script_dir/tooling/fixtures/02.in" "$problem_dir/cases/incomplete.in"
 if (
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" test --checked
+    "$repo_root/bin/cfx" --root "$sandbox" test --checked
 ) >/dev/null; then
     echo "tooling test failed: incomplete input/output pair was accepted" >&2
     exit 1
@@ -260,13 +311,13 @@ rm "$problem_dir/cases/incomplete.in"
 
 cached_output=$(
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" test --checked
+    "$repo_root/bin/cfx" --root "$sandbox" test --checked
 )
 grep -q 'cached:' <<<"$cached_output"
 
 (
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" bundle
+    "$repo_root/bin/cfx" --root "$sandbox" bundle
 ) >"$build_dir/bundled.cpp"
 if grep -q '#include "cp/' "$build_dir/bundled.cpp"; then
     echo "tooling test failed: bundle retained a cp include" >&2
@@ -275,38 +326,38 @@ fi
 
 (
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" stress -n 5 --seed 11
+    "$repo_root/bin/cfx" --root "$sandbox" stress -n 5 --seed 11
 ) | grep -q '5 stress cases passed'
 
 cp "$script_dir/tooling/fixtures/wrong.cpp" "$problem_dir/solution.cpp"
 if (
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" stress -n 1 --seed 99
+    "$repo_root/bin/cfx" --root "$sandbox" stress -n 1 --seed 99
 ) >/dev/null; then
     echo "tooling test failed: stress mismatch was accepted" >&2
     exit 1
 fi
 (
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" fail
+    "$repo_root/bin/cfx" --root "$sandbox" fail
 ) | grep -q 'stress-1.in'
 test -f "$problem_dir/cases/stress-1.in"
 test -f "$problem_dir/cases/stress-1.out"
 cp "$script_dir/tooling/fixtures/sum.cpp" "$problem_dir/solution.cpp"
 (
     cd "$problem_dir"
-    "$repo_root/bin/probs" --root "$sandbox" test
+    "$repo_root/bin/cfx" --root "$sandbox" test
 ) | grep -q '4/4 passed'
 
 mkdir -p "$sandbox/solutions" "$sandbox/tests/A.71"
 cp "$script_dir/tooling/fixtures/sum.cpp" "$sandbox/solutions/A.71.cpp"
 cp "$script_dir/tooling/fixtures/02.in" "$sandbox/tests/A.71/case-1.in"
 cp "$script_dir/tooling/fixtures/02.out" "$sandbox/tests/A.71/case-1.out"
-"$repo_root/bin/probs" --root "$sandbox" test A 71 |
+"$repo_root/bin/cfx" --root "$sandbox" test A 71 |
     grep -q '1/1 passed'
 
 port=$((32000 + ($$ % 20000)))
-"$repo_root/bin/probs" --root "$sandbox" cc --once --port "$port" \
+"$repo_root/bin/cfx" --root "$sandbox" cc --once --port "$port" \
     >"$build_dir/cc.out" 2>"$build_dir/cc.err" &
 cc_pid=$!
 if ! curl \

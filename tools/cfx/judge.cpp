@@ -1,10 +1,12 @@
 #include "judge.hpp"
 
+#include "json.hpp"
 #include "problem.hpp"
-#include "process.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -13,10 +15,13 @@
 #include <system_error>
 #include <unistd.h>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
+
+constexpr auto kFallbackTimeLimit = std::chrono::milliseconds(5000);
+constexpr std::uint64_t kMebibyte = 1024U * 1024U;
 
 struct Case {
     std::string name;
@@ -132,9 +137,11 @@ std::vector<Case> cases_for(const Problem& problem) {
     return result;
 }
 
+std::string preview(const std::string& value);
+
 void show_stream_if_nonempty(const std::string& label, const fs::path& path, std::ostream& output) {
     if (fs::is_regular_file(path) && fs::file_size(path) != 0) {
-        const std::string contents = read_file(path);
+        const std::string contents = preview(read_file(path));
         output << label << ":\n" << contents;
         if (contents.back() != '\n') {
             output << '\n';
@@ -148,6 +155,60 @@ std::string preview(const std::string& value) {
         return value;
     }
     return value.substr(0, limit) + "\n... output truncated ...\n";
+}
+
+std::optional<std::uint64_t> metadata_integer(const Json& document, std::string_view name,
+                                              std::uint64_t maximum,
+                                              const fs::path& metadata_path) {
+    const Json* field = document.find(name);
+    if (field == nullptr) {
+        return std::nullopt;
+    }
+    if (!field->is_number()) {
+        throw std::runtime_error(metadata_path.string() + ": " + std::string(name) +
+                                 " must be a number");
+    }
+    const double value = field->number();
+    if (value < 1.0 || value > static_cast<double>(maximum) || std::floor(value) != value) {
+        throw std::runtime_error(metadata_path.string() + ": " + std::string(name) +
+                                 " must be a positive integer");
+    }
+    return static_cast<std::uint64_t>(value);
+}
+
+std::string resource_usage(const ProcessResult& result, const ProblemLimits& limits) {
+    std::string description = format_duration(result.cpu_time) + " CPU, " +
+                              format_duration(result.elapsed) + " wall / " +
+                              format_duration(limits.time_limit);
+    if (result.peak_memory_bytes != 0) {
+        description += ", " + format_bytes(result.peak_memory_bytes);
+        if (limits.memory_limit_bytes) {
+            description += " / " + format_bytes(*limits.memory_limit_bytes);
+        }
+    }
+    return description;
+}
+
+std::string runtime_detail(const ProcessResult& result) {
+    if (result.signal != 0) {
+        const char* description = ::strsignal(result.signal);
+        return "signal " + std::to_string(result.signal) +
+               (description == nullptr ? std::string{} : " (" + std::string(description) + ")");
+    }
+    return "exit " + std::to_string(result.exit_code);
+}
+
+CaseVerdict process_verdict(const ProcessResult& result) {
+    if (result.timed_out) {
+        return CaseVerdict::time_limit_exceeded;
+    }
+    if (result.memory_limit_exceeded) {
+        return CaseVerdict::memory_limit_exceeded;
+    }
+    if (result.output_limit_exceeded) {
+        return CaseVerdict::output_limit_exceeded;
+    }
+    return CaseVerdict::runtime_error;
 }
 
 void atomic_pair(const fs::path& input_path, const fs::path& output_path, const std::string& input,
@@ -202,17 +263,88 @@ void atomic_pair(const fs::path& input_path, const fs::path& output_path, const 
 
 } // namespace
 
+ProblemLimits load_problem_limits(const Problem& problem) {
+    ProblemLimits limits;
+    const fs::path metadata_path = problem.directory() / "problem.json";
+    if (!fs::is_regular_file(metadata_path)) {
+        return limits;
+    }
+
+    Json document;
+    try {
+        document = parse_json(read_file(metadata_path));
+    } catch (const JsonError& error) {
+        throw std::runtime_error(metadata_path.string() + ": " + error.what());
+    }
+    if (!document.is_object()) {
+        throw std::runtime_error(metadata_path.string() + ": metadata must be a JSON object");
+    }
+    if (const Json* id = document.find("id"); id != nullptr) {
+        if (!id->is_string() || id->string() != problem.id()) {
+            throw std::runtime_error(metadata_path.string() + ": problem id does not match " +
+                                     problem.id());
+        }
+    }
+
+    if (const auto milliseconds =
+            metadata_integer(document, "timeLimitMs", 86'400'000U, metadata_path)) {
+        limits.time_limit = std::chrono::milliseconds(*milliseconds);
+        limits.time_from_metadata = true;
+    }
+    if (const auto mebibytes =
+            metadata_integer(document, "memoryLimitMb", 1'048'576U, metadata_path)) {
+        limits.memory_limit_bytes = *mebibytes * kMebibyte;
+        limits.memory_from_metadata = true;
+    }
+    return limits;
+}
+
 Judge::Judge(fs::path root) : root_(fs::weakly_canonical(std::move(root))), builder_(root_) {}
 
 TestSummary Judge::test(const Problem& problem, const TestOptions& options) const {
     TestSummary summary;
-    summary.build =
-        builder_.build_problem(problem, BuildOptions{options.checked, options.rebuild, true});
+    summary.limits = load_problem_limits(problem);
+    if (options.checked && !options.timeout) {
+        if (summary.limits.time_limit < kFallbackTimeLimit) {
+            summary.limits.time_limit = kFallbackTimeLimit;
+            summary.limits.time_from_metadata = false;
+        }
+    }
+    if (options.checked && !options.memory_limit_bytes) {
+        summary.limits.memory_limit_bytes.reset();
+        summary.limits.memory_from_metadata = false;
+    }
+    if (options.timeout) {
+        summary.limits.time_limit = *options.timeout;
+        summary.limits.time_from_metadata = false;
+    }
+    if (options.memory_limit_bytes) {
+        summary.limits.memory_limit_bytes = options.memory_limit_bytes;
+        summary.limits.memory_from_metadata = false;
+    }
+
+    summary.build = builder_.build_problem(
+        problem, BuildOptions{options.checked, options.rebuild, !options.submission_profile});
     if (!options.concise) {
         std::cout << (summary.build.compiled ? "built: " : "cached: ") << problem.id() << " ["
                   << summary.build.digest.substr(0, 12) << "]\n"
                   << "size: source " << format_bytes(summary.build.source_size) << ", binary "
-                  << format_bytes(summary.build.binary_size) << '\n';
+                  << format_bytes(summary.build.binary_size) << '\n'
+                  << "limits: time " << format_duration(summary.limits.time_limit);
+        if (!summary.limits.time_from_metadata && !options.timeout) {
+            std::cout << " (fallback)";
+        }
+        std::cout << ", memory "
+                  << (summary.limits.memory_limit_bytes
+                          ? format_bytes(*summary.limits.memory_limit_bytes)
+                          : std::string("unlimited"))
+                  << ", output "
+                  << (options.output_limit_bytes ? format_bytes(*options.output_limit_bytes)
+                                                 : std::string("unlimited"))
+                  << '\n';
+        if (options.checked) {
+            std::cout << "note: checked-build resource use is not Codeforces-comparable\n";
+        }
     }
 
     const std::vector<Case> cases = cases_for(problem);
@@ -237,22 +369,42 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         if (!test_case.expected) {
             std::cout << (options.concise ? test_case.name + ": " : "")
                       << "missing expected output: " << test_case.input.stem().string() << ".out\n";
+            summary.cases.push_back(TestCaseResult{
+                test_case.name,
+                CaseVerdict::missing_expected_output,
+                {},
+            });
             continue;
         }
         const ProcessResult result =
             run_process({summary.build.binary.string()}, ProcessOptions{
-                                                             test_case.input,
-                                                             actual_path,
-                                                             error_path,
-                                                             options.timeout,
-                                                             problem.solution_path().parent_path(),
+                                                             .stdin_path = test_case.input,
+                                                             .stdout_path = actual_path,
+                                                             .stderr_path = error_path,
+                                                             .timeout = summary.limits.time_limit,
+                                                             .working_directory =
+                                                                 problem.solution_path()
+                                                                     .parent_path(),
+                                                             .memory_limit_bytes =
+                                                                 summary.limits.memory_limit_bytes,
+                                                             .output_limit_bytes =
+                                                                 options.output_limit_bytes,
                                                          });
         summary.elapsed += result.elapsed;
+        summary.max_wall_time = std::max(summary.max_wall_time, result.elapsed);
+        summary.max_cpu_time = std::max(summary.max_cpu_time, result.cpu_time);
+        summary.peak_memory_bytes =
+            std::max(summary.peak_memory_bytes, result.peak_memory_bytes);
         if (result.status != 0) {
+            const CaseVerdict verdict = process_verdict(result);
             std::cout << (options.concise ? test_case.name + ": " : "")
-                      << (result.timed_out ? "TLE" : "runtime failure") << " (exit "
-                      << result.status << ", " << format_duration(result.elapsed) << ")\n";
+                      << verdict_name(verdict) << " (";
+            if (verdict == CaseVerdict::runtime_error) {
+                std::cout << runtime_detail(result) << ", ";
+            }
+            std::cout << resource_usage(result, summary.limits) << ")\n";
             show_stream_if_nonempty("stderr", error_path, std::cerr);
+            summary.cases.push_back(TestCaseResult{test_case.name, verdict, result});
             continue;
         }
 
@@ -261,24 +413,35 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         const std::string expected = read_file(*test_case.expected);
         if (normalize_output(actual) == normalize_output(expected)) {
             if (!options.concise) {
-                std::cout << "OK (" << format_duration(result.elapsed) << ")\n";
+                std::cout << "OK (" << resource_usage(result, summary.limits) << ")\n";
             }
             ++summary.passed;
+            summary.cases.push_back(
+                TestCaseResult{test_case.name, CaseVerdict::accepted, result});
         } else {
             std::cout << (options.concise ? test_case.name + ": " : "") << "WA ("
-                      << format_duration(result.elapsed) << ")\n"
+                      << resource_usage(result, summary.limits) << ")\n"
                       << "expected:\n"
                       << preview(expected)
                       << (expected.empty() || expected.back() == '\n' ? "" : "\n") << "actual:\n"
                       << preview(actual) << (actual.empty() || actual.back() == '\n' ? "" : "\n");
+            summary.cases.push_back(
+                TestCaseResult{test_case.name, CaseVerdict::wrong_answer, result});
         }
     }
     if (options.concise) {
-        std::cout << summary.passed << '/' << summary.total << " tests passed\n";
+        std::cout << summary.passed << '/' << summary.total << " tests passed";
     } else {
-        std::cout << summary.passed << '/' << summary.total << " passed, time "
-                  << format_duration(summary.elapsed) << '\n';
+        std::cout << summary.passed << '/' << summary.total << " passed";
     }
+    if (!summary.cases.empty()) {
+        std::cout << "; max " << format_duration(summary.max_cpu_time) << " CPU, "
+                  << format_duration(summary.max_wall_time) << " wall";
+        if (summary.peak_memory_bytes != 0) {
+            std::cout << ", " << format_bytes(summary.peak_memory_bytes);
+        }
+    }
+    std::cout << '\n';
     return summary;
 }
 
@@ -317,11 +480,11 @@ StressSummary Judge::stress(const Problem& problem, const StressOptions& options
 
         const ProcessResult generated =
             run_process(generator_command, ProcessOptions{
-                                               std::nullopt,
-                                               input,
-                                               generator_error,
-                                               options.generator_timeout,
-                                               options.generator.parent_path(),
+                                               .stdout_path = input,
+                                               .stderr_path = generator_error,
+                                               .timeout = options.generator_timeout,
+                                               .working_directory =
+                                                   options.generator.parent_path(),
                                            });
         if (generated.status != 0) {
             throw std::runtime_error("generator failed for seed " + std::to_string(seed));
@@ -329,22 +492,24 @@ StressSummary Judge::stress(const Problem& problem, const StressOptions& options
 
         const ProcessResult expected_run =
             run_process({brute.binary.string()}, ProcessOptions{
-                                                     input,
-                                                     expected,
-                                                     brute_error,
-                                                     options.timeout,
-                                                     options.brute.parent_path(),
+                                                     .stdin_path = input,
+                                                     .stdout_path = expected,
+                                                     .stderr_path = brute_error,
+                                                     .timeout = options.timeout,
+                                                     .working_directory =
+                                                         options.brute.parent_path(),
                                                  });
         if (expected_run.status != 0) {
             throw std::runtime_error("brute force failed for seed " + std::to_string(seed));
         }
         const ProcessResult actual_run =
             run_process({solution.binary.string()}, ProcessOptions{
-                                                        input,
-                                                        actual,
-                                                        solution_error,
-                                                        options.timeout,
-                                                        problem.solution_path().parent_path(),
+                                                        .stdin_path = input,
+                                                        .stdout_path = actual,
+                                                        .stderr_path = solution_error,
+                                                        .timeout = options.timeout,
+                                                        .working_directory =
+                                                            problem.solution_path().parent_path(),
                                                     });
         if (actual_run.status != 0 ||
             normalize_output(read_file(actual)) != normalize_output(read_file(expected))) {
@@ -427,4 +592,24 @@ std::string format_duration(std::chrono::milliseconds duration) {
     return std::to_string(seconds) + "." + fraction + "s";
 }
 
-} // namespace cfprobs
+std::string verdict_name(CaseVerdict verdict) {
+    switch (verdict) {
+    case CaseVerdict::accepted:
+        return "OK";
+    case CaseVerdict::wrong_answer:
+        return "WA";
+    case CaseVerdict::time_limit_exceeded:
+        return "TLE";
+    case CaseVerdict::memory_limit_exceeded:
+        return "MLE";
+    case CaseVerdict::output_limit_exceeded:
+        return "OLE";
+    case CaseVerdict::runtime_error:
+        return "RE";
+    case CaseVerdict::missing_expected_output:
+        return "missing expected output";
+    }
+    return "unknown";
+}
+
+} // namespace cfx

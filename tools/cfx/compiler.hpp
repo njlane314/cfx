@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 
 class Problem;
 
@@ -42,4 +42,4 @@ class Builder {
 std::string format_bytes(std::uintmax_t bytes);
 std::string configured_standard();
 
-} // namespace cfprobs
+} // namespace cfx

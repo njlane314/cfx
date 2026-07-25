@@ -25,7 +25,7 @@
 #include <system_error>
 #include <unistd.h>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
@@ -435,4 +435,4 @@ void serve_companion(const fs::path& root, const std::string& host, int port, bo
     ::close(server);
 }
 
-} // namespace cfprobs
+} // namespace cfx

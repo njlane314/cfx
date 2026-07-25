@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 
 class ProblemError : public std::runtime_error {
   public:
@@ -52,9 +52,9 @@ class Problem {
     std::filesystem::path root_;
 };
 
-// Walk upward from start and return the first cf-probs repository root.
+// Walk upward from start and return the first cfx repository root.
 // If no marker is found, start itself is returned in normalized absolute form.
 [[nodiscard]] std::filesystem::path
 find_workspace_root(const std::filesystem::path& start = std::filesystem::current_path());
 
-} // namespace cfprobs
+} // namespace cfx

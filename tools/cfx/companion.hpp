@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 
 struct Sample {
     std::string input;
@@ -39,4 +39,4 @@ ImportResult import_companion_package(const CompanionPackage& package,
 void serve_companion(const std::filesystem::path& root, const std::string& host, int port,
                      bool once, bool force);
 
-} // namespace cfprobs
+} // namespace cfx

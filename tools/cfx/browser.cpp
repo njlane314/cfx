@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -28,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 constexpr std::size_t kMaxHeaderBytes = 16 * 1024;
@@ -172,11 +173,11 @@ bool extension_identifier(std::string_view value) {
 }
 
 std::string configured_extension_identifier() {
-    if (const char* configured = std::getenv("CFPROBS_CHROME_EXTENSION_ID");
+    if (const char* configured = std::getenv("CFX_CHROME_EXTENSION_ID");
         configured != nullptr && *configured != '\0') {
         return configured;
     }
-    const char* root = std::getenv("CF_PROBS_ROOT");
+    const char* root = std::getenv("CFX_ROOT");
     if (root == nullptr || *root == '\0') {
         return {};
     }
@@ -403,7 +404,7 @@ void send_response(int descriptor, const HttpResponse& response) {
     }
     if (response.preflight) {
         output += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-                  "Access-Control-Allow-Headers: Content-Type, X-Cfprobs-Extension\r\n"
+                  "Access-Control-Allow-Headers: Content-Type, X-Cfx-Extension\r\n"
                   "Access-Control-Max-Age: 60\r\n";
     }
     output += "Content-Type: " + response.content_type +
@@ -421,7 +422,7 @@ std::string required_client(const HttpRequest& request, std::string_view extensi
         }
         return origin;
     }
-    const std::string claimed_extension = header(request, "x-cfprobs-extension");
+    const std::string claimed_extension = header(request, "x-cfx-extension");
     if (lower(header(request, "sec-fetch-site")) != "none" ||
         (!claimed_extension.empty() &&
          !constant_time_equal(claimed_extension, extension_identifier))) {
@@ -467,13 +468,56 @@ bool optional_bool(const Json& document, std::string_view name) {
     return value->boolean();
 }
 
+std::uint64_t required_nonnegative_integer(const Json& document, std::string_view name) {
+    const Json* value = document.find(name);
+    if (value == nullptr || !value->is_number()) {
+        throw HttpError(400, std::string(name) + " must be a nonnegative integer");
+    }
+    const double number = value->number();
+    constexpr double maximum_safe_integer = 9007199254740991.0;
+    if (!std::isfinite(number) || number < 0.0 || std::floor(number) != number ||
+        number > maximum_safe_integer) {
+        throw HttpError(400, std::string(name) + " must be a nonnegative integer");
+    }
+    return static_cast<std::uint64_t>(number);
+}
+
+bool terminal_verdict(std::string_view verdict) {
+    if (verdict.empty() || verdict == "NULL" || verdict == "SUBMITTED" ||
+        verdict == "TESTING") {
+        return false;
+    }
+    return std::all_of(verdict.begin(), verdict.end(), [](unsigned char character) {
+        return (character >= 'A' && character <= 'Z') || character == '_';
+    });
+}
+
+bool submission_url_matches(std::string_view url, std::string_view target,
+                            std::string_view submission_id) {
+    if (url.ends_with('/')) {
+        url.remove_suffix(1);
+    }
+    const std::size_t contest_length = target.find_first_not_of("0123456789");
+    if (contest_length == 0 || contest_length == std::string_view::npos) {
+        return false;
+    }
+    const std::string contest(target.substr(0, contest_length));
+    const std::string contest_url =
+        "https://codeforces.com/contest/" + contest + "/submission/" +
+        std::string(submission_id);
+    const std::string problemset_url =
+        "https://codeforces.com/problemset/submission/" + contest + "/" +
+        std::string(submission_id);
+    return url == contest_url || url == problemset_url;
+}
+
 struct ParsedSubmitResult {
     BrowserSubmitReceipt receipt;
     std::string error;
     bool unknown = false;
 };
 
-ParsedSubmitResult parse_submit_result(std::string_view body) {
+ParsedSubmitResult parse_submit_result(std::string_view body, std::string_view expected_target) {
     Json document;
     try {
         document = parse_json(body);
@@ -484,22 +528,47 @@ ParsedSubmitResult parse_submit_result(std::string_view body) {
         throw HttpError(400, "result must be a JSON object");
     }
     const bool ok = required_bool(document, "ok");
-    ParsedSubmitResult result{
-        BrowserSubmitReceipt{
-            optional_string(document, "url"),
-            optional_string(document, "verdict"),
-        },
-        optional_string(document, "error"),
-        optional_bool(document, "unknown"),
-    };
+    ParsedSubmitResult result;
+    result.receipt.submission_url = optional_string(document, "url");
+    result.receipt.submission_id = optional_string(document, "submissionId");
+    result.receipt.verdict = optional_string(document, "verdict");
+    result.receipt.verdict_text = optional_string(document, "verdictText");
+    result.error = optional_string(document, "error");
+    result.unknown = optional_bool(document, "unknown");
     if (result.error.empty()) {
         result.error = optional_string(document, "message");
     }
     if (ok && result.receipt.submission_url.empty()) {
         throw HttpError(400, "successful result has no submission URL");
     }
+    if (ok && (result.receipt.submission_id.empty() ||
+               !std::all_of(result.receipt.submission_id.begin(),
+                            result.receipt.submission_id.end(),
+                            [](unsigned char character) { return std::isdigit(character) != 0; }))) {
+        throw HttpError(400, "successful result has no valid submission ID");
+    }
+    if (ok && !submission_url_matches(result.receipt.submission_url, expected_target,
+                                      result.receipt.submission_id)) {
+        throw HttpError(400, "successful result URL does not match the submission");
+    }
     if (ok && result.unknown) {
         throw HttpError(400, "successful result cannot have unknown status");
+    }
+    if (ok && !terminal_verdict(result.receipt.verdict)) {
+        throw HttpError(400, "successful result has no terminal verdict");
+    }
+    if (ok && result.receipt.verdict_text.empty()) {
+        throw HttpError(400, "successful result has no verdict text");
+    }
+    if (ok) {
+        result.receipt.passed_test_count =
+            required_nonnegative_integer(document, "passedTestCount");
+        result.receipt.time_consumed_millis =
+            required_nonnegative_integer(document, "timeConsumedMillis");
+        result.receipt.memory_consumed_bytes =
+            required_nonnegative_integer(document, "memoryConsumedBytes");
+        result.receipt.judging_wait_millis =
+            required_nonnegative_integer(document, "judgingWaitMillis");
     }
     if (!ok && result.error.empty()) {
         result.error = "Codeforces rejected the submission";
@@ -522,11 +591,11 @@ struct BrowserCommand {
 };
 
 BrowserCommand browser_command(std::string_view url) {
-    const char* configured = std::getenv("CFPROBS_BROWSER");
+    const char* configured = std::getenv("CFX_BROWSER");
     if (configured != nullptr && *configured != '\0') {
         std::vector<std::string> command = split_command_words(configured);
         if (command.empty()) {
-            throw std::runtime_error("CFPROBS_BROWSER is empty");
+            throw std::runtime_error("CFX_BROWSER is empty");
         }
         bool replaced = false;
         for (std::string& argument : command) {
@@ -611,7 +680,7 @@ class Bridge {
             const auto now = std::chrono::steady_clock::now();
             if (!connector_ready_ && now >= connect_deadline) {
                 throw BrowserConnectorUnavailable(
-                    "Chrome connector did not respond; install it or use probs submit --manual");
+                    "Chrome connector did not respond; install it or use cfx submit --manual");
             }
             if (now >= deadline) {
                 if (mode_ == BridgeMode::submit) {
@@ -714,7 +783,7 @@ class Bridge {
         }
         if (!options_.extension_id.empty() && !extension_identifier(options_.extension_id)) {
             throw std::invalid_argument(
-                "CFPROBS_CHROME_EXTENSION_ID must be 32 lowercase letters from a to p");
+                "CFX_CHROME_EXTENSION_ID must be 32 lowercase letters from a to p");
         }
         if (options_.extension_id.empty()) {
             throw std::runtime_error(
@@ -758,8 +827,8 @@ class Bridge {
     [[nodiscard]] std::string launch_url() const {
         std::string url = page_url_.substr(0, page_url_.find('#'));
         url += url.find('?') == std::string::npos ? '?' : '&';
-        url += "cfprobs_reload=" + navigation_nonce_;
-        url += "#cfprobs=";
+        url += "cfx_reload=" + navigation_nonce_;
+        url += "#cfx=";
         url += mode_ == BridgeMode::fetch ? "fetch" : "submit";
         url += "&port=" + std::to_string(port_) + "&token=" + token_;
         return url;
@@ -808,7 +877,7 @@ class Bridge {
             if (incoming.body.size() > options_.max_result_bytes) {
                 throw HttpError(413, "submission result is too large");
             }
-            ParsedSubmitResult parsed = parse_submit_result(incoming.body);
+            ParsedSubmitResult parsed = parse_submit_result(incoming.body, request_.target);
             if (!submission_served_ && (parsed.error.empty() || parsed.unknown)) {
                 throw HttpError(409, "submission source was not requested");
             }
@@ -867,11 +936,7 @@ void open_browser_url(const std::string& url) {
     }
     const ProcessResult result =
         run_process(command.arguments, ProcessOptions{
-                                           std::nullopt,
-                                           std::nullopt,
-                                           std::nullopt,
-                                           std::chrono::seconds(10),
-                                           std::nullopt,
+                                           .timeout = std::chrono::seconds(10),
                                        });
     if (result.status != 0) {
         throw std::runtime_error("cannot open Chrome");
@@ -899,11 +964,18 @@ BrowserSubmitReceipt submit_in_browser(const BrowserSubmitRequest& request,
     BridgeCompletion completion = bridge.wait();
     if (!completion.error.empty()) {
         if (completion.submission_unknown) {
-            throw std::runtime_error("submission status is unknown: " + completion.error);
+            std::string detail = completion.error;
+            if (!completion.submission.submission_id.empty()) {
+                detail += "; submission " + completion.submission.submission_id;
+            }
+            if (!completion.submission.submission_url.empty()) {
+                detail += "; " + completion.submission.submission_url;
+            }
+            throw std::runtime_error("submission status is unknown: " + detail);
         }
         throw std::runtime_error("Codeforces submission failed: " + completion.error);
     }
     return completion.submission;
 }
 
-} // namespace cfprobs
+} // namespace cfx

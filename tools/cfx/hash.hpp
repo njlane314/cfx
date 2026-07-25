@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-namespace cfprobs {
+namespace cfx {
 
 // A deterministic, compact cache key. This is not used for security.
 inline std::string content_digest(std::string_view value) {
@@ -26,4 +26,4 @@ inline std::string content_digest(std::string_view value) {
     return stream.str();
 }
 
-} // namespace cfprobs
+} // namespace cfx

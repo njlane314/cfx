@@ -95,8 +95,8 @@ if [[ $derived_id != "$extension_id" ]]; then
 fi
 
 output_dir=$repo_root/.build/browser
-archive=$output_dir/cf-probs-connector-$version.zip
-stage=$(mktemp -d "${TMPDIR:-/tmp}/cfprobs-browser.XXXXXX")
+archive=$output_dir/cfx-connector-$version.zip
+stage=$(mktemp -d "${TMPDIR:-/tmp}/cfx-browser.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 
 mkdir -p "$stage/icons" "$output_dir"

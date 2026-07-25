@@ -1,4 +1,4 @@
-#include "cfprobs/bundle.hpp"
+#include "cfx/bundle.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
@@ -157,4 +157,4 @@ std::string bundle(const fs::path& source, const fs::path& root) {
     return Bundler(root).bundle(source);
 }
 
-} // namespace cfprobs
+} // namespace cfx

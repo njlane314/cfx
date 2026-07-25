@@ -8,11 +8,11 @@
 #include <cstdlib>
 #include <stdexcept>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 std::string api_base() {
-    const char* override = std::getenv("CFPROBS_API_BASE");
+    const char* override = std::getenv("CFX_API_BASE");
     return override == nullptr ? "https://codeforces.com/api" : std::string(override);
 }
 
@@ -55,7 +55,7 @@ std::vector<std::string> fetch_contest_indexes(const std::string& contest_id) {
         "--max-time",
         "20",
         "--user-agent",
-        "cf-probs/1",
+        "cfx/1",
         url,
     });
     if (response.status != 0) {
@@ -73,4 +73,4 @@ std::string submission_url(const Problem&) {
     return "https://codeforces.com/problemset/submit";
 }
 
-} // namespace cfprobs
+} // namespace cfx

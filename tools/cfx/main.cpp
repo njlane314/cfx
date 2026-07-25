@@ -2,6 +2,7 @@
 #include "bundle.hpp"
 #include "codeforces.hpp"
 #include "companion.hpp"
+#include "compiler.hpp"
 #include "judge.hpp"
 #include "problem.hpp"
 #include "process.hpp"
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -25,17 +27,17 @@
 namespace {
 
 namespace fs = std::filesystem;
-using cfprobs::Problem;
+using cfx::Problem;
 
 const char* kHelp = R"(usage:
-  probs PROBLEM
-  probs submit
+  cfx PROBLEM
+  cfx submit
 
 A small C++20 Codeforces workbench.
 
 daily:
-  probs 71A             fetch samples and open solution.cpp
-  probs submit          test, checked-build, and submit through the browser
+  cfx 71A             fetch samples and open solution.cpp
+  cfx submit          test, checked-build, and submit through the browser
 
 advanced:
   test [PROBLEM]        build and judge saved samples and cases
@@ -51,44 +53,48 @@ workspaces, and inference from problems/cf/<contest>/<index>/ are supported.
 )";
 
 const std::map<std::string, std::string, std::less<>> kCommandHelp{
-    {"get", R"(usage: probs get PROBLEM|CONTEST
+    {"get", R"(usage: cfx get PROBLEM|CONTEST
 
 Create problems/cf/<contest>/<index>/ from templates/solution.cpp. A numeric
 contest fetches its problem indexes from the official Codeforces API.
 )"},
-    {"test", R"(usage: probs test [--checked] [--rebuild] [--time-limit SECONDS] [PROBLEM]
+    {"test", R"(usage: cfx test [options] [PROBLEM]
 
 Bundle, compile, and judge samples followed by handwritten cases. The problem
-is inferred when the command runs inside its workspace.
+is inferred when the command runs inside its workspace. Fetched Codeforces time
+and memory limits are used by default. Options: --checked, --rebuild,
+--time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
 )"},
-    {"bundle", R"(usage: probs bundle [--output FILE] [PROBLEM]
+    {"bundle", R"(usage: cfx bundle [--output FILE] [PROBLEM]
 
 Recursively expand project-local quoted includes. Output goes to stdout unless
 --output is given.
 )"},
-    {"stress", R"(usage: probs stress [options] [PROBLEM]
+    {"stress", R"(usage: cfx stress [options] [PROBLEM]
 
 Defaults to stress/gen.cpp and stress/brute.cpp in the problem workspace.
 Options: --gen FILE, --brute FILE, -n/--count N, --seed N, --gen-arg ARG,
 --checked, --rebuild, --time-limit SECONDS, --generator-time-limit SECONDS,
 and --verbose.
 )"},
-    {"cc", R"(usage: probs cc [--host ADDRESS] [--port PORT] [--once] [--force]
+    {"cc", R"(usage: cfx cc [--host ADDRESS] [--port PORT] [--once] [--force]
 
 Listen for Competitive Companion JSON and store fetched samples separately
 from handwritten cases. Existing differing pairs require --force.
 )"},
-    {"submit", R"(usage: probs submit [--manual] [--rebuild] [PROBLEM]
+    {"submit", R"(usage: cfx submit [--manual] [--rebuild] [PROBLEM]
 
 Run saved tests, create and checked-compile the final bundle, then submit it
 through the installed browser connector and the browser's authenticated
 Codeforces session. If Chrome has no connector, fall back to copying the exact
 tested source and opening the submission page. --manual selects that fallback
 directly. With no PROBLEM, use the current workspace or the most recent problem
-opened by `probs PROBLEM`; conflicting targets require an explicit ID. No
-password or cookie is read or stored by probs.
+opened by `cfx PROBLEM`; conflicting targets require an explicit ID. No
+password or cookie is read or stored by cfx.
+Exit status is 0 only for an Accepted verdict, 1 for a completed non-Accepted
+verdict, and 2 when submission or judging was not completed automatically.
 )"},
-    {"fail", R"(usage: probs fail [PROBLEM]
+    {"fail", R"(usage: cfx fail [PROBLEM]
 
 Promote the most recent recorded stress mismatch to a regression case.
 )"},
@@ -129,7 +135,25 @@ std::chrono::milliseconds duration(const std::string& value, const std::string& 
     if (parsed != value.size() || !std::isfinite(seconds) || seconds <= 0.0 || seconds > 86400.0) {
         throw std::runtime_error(name + " must be a positive number no greater than 86400");
     }
-    return std::chrono::milliseconds(static_cast<long long>(std::llround(seconds * 1000.0)));
+    const long long milliseconds = static_cast<long long>(std::llround(seconds * 1000.0));
+    if (milliseconds < 1) {
+        throw std::runtime_error(name + " must be at least 0.001 seconds");
+    }
+    return std::chrono::milliseconds(milliseconds);
+}
+
+std::uint64_t mebibytes(const std::string& value, const std::string& name) {
+    std::size_t parsed = 0;
+    const double count = std::stod(value, &parsed);
+    if (parsed != value.size() || !std::isfinite(count) || count <= 0.0 || count > 1'048'576.0) {
+        throw std::runtime_error(name + " must be a positive number no greater than 1048576");
+    }
+    const double bytes = count * 1024.0 * 1024.0;
+    const auto rounded = static_cast<std::uint64_t>(std::llround(bytes));
+    if (rounded == 0) {
+        throw std::runtime_error(name + " is too small");
+    }
+    return rounded;
 }
 
 int bounded_integer(const std::string& value, const std::string& name, int minimum, int maximum) {
@@ -170,11 +194,11 @@ Problem resolve_submission_problem(const std::vector<std::string>& values,
         return resolve_problem(values, root);
     }
     const std::optional<Problem> inferred = Problem::infer(fs::current_path(), root);
-    const std::optional<Problem> remembered = cfprobs::current_problem(root);
+    const std::optional<Problem> remembered = cfx::current_problem(root);
     if (inferred && remembered && inferred->id() != remembered->id()) {
         throw std::runtime_error("submission target is ambiguous: current directory is " +
                                  inferred->id() + " but current problem is " + remembered->id() +
-                                 "; pass an ID such as `probs submit " + remembered->id() + "`");
+                                 "; pass an ID such as `cfx submit " + remembered->id() + "`");
     }
     if (inferred) {
         return *inferred;
@@ -182,13 +206,13 @@ Problem resolve_submission_problem(const std::vector<std::string>& values,
     if (remembered) {
         if (!fs::is_regular_file(remembered->solution_path())) {
             throw std::runtime_error("current problem " + remembered->id() +
-                                     " has no solution; run probs " + remembered->id() +
+                                     " has no solution; run cfx " + remembered->id() +
                                      " again");
         }
         return *remembered;
     }
     throw std::runtime_error(
-        "cannot determine which problem to submit; run probs 71A or pass a problem ID");
+        "cannot determine which problem to submit; run cfx 71A or pass a problem ID");
 }
 
 fs::path resolve_path(const fs::path& value) {
@@ -218,9 +242,9 @@ std::string display_path(const fs::path& path, const fs::path& root) {
 void open_editor(const fs::path& solution) {
     std::vector<std::string> command;
     if (const char* editor = std::getenv("EDITOR"); editor != nullptr && *editor != '\0') {
-        command = cfprobs::split_command_words(editor);
+        command = cfx::split_command_words(editor);
     } else if (const char* visual = std::getenv("VISUAL"); visual != nullptr && *visual != '\0') {
-        command = cfprobs::split_command_words(visual);
+        command = cfx::split_command_words(visual);
     } else {
 #ifdef __APPLE__
         command = {"open"};
@@ -232,12 +256,9 @@ void open_editor(const fs::path& solution) {
         throw std::runtime_error("EDITOR names no command");
     }
     command.push_back(solution.filename().string());
-    const cfprobs::ProcessResult result = cfprobs::run_process(command, cfprobs::ProcessOptions{
-                                                                            std::nullopt,
-                                                                            std::nullopt,
-                                                                            std::nullopt,
-                                                                            std::nullopt,
-                                                                            solution.parent_path(),
+    const cfx::ProcessResult result = cfx::run_process(command, cfx::ProcessOptions{
+                                                                            .working_directory =
+                                                                                solution.parent_path(),
                                                                         });
     if (result.status != 0) {
         throw std::runtime_error("editor exited with status " + std::to_string(result.status));
@@ -258,15 +279,15 @@ int command_get(Arguments arguments, const fs::path& root) {
         positional.push_back(argument);
     }
     if (positional.empty() || positional.size() > 2) {
-        throw std::runtime_error("usage: probs get PROBLEM|CONTEST");
+        throw std::runtime_error("usage: cfx get PROBLEM|CONTEST");
     }
 
-    cfprobs::Workspace workspace(root);
+    cfx::Workspace workspace(root);
     if (positional.size() == 1 && all_digits(positional.front())) {
         const std::string contest = positional.front();
-        const std::vector<std::string> indexes = cfprobs::fetch_contest_indexes(contest);
+        const std::vector<std::string> indexes = cfx::fetch_contest_indexes(contest);
         for (const std::string& index : indexes) {
-            const cfprobs::WorkspaceResult result = workspace.create(Problem(contest, index, root));
+            const cfx::WorkspaceResult result = workspace.create(Problem(contest, index, root));
             std::cout << (result.solution_created ? "created: " : "exists: ") << result.solution
                       << '\n';
         }
@@ -274,28 +295,28 @@ int command_get(Arguments arguments, const fs::path& root) {
     }
 
     const Problem problem = resolve_problem(positional, root);
-    const cfprobs::WorkspaceResult result = workspace.create(problem);
+    const cfx::WorkspaceResult result = workspace.create(problem);
     std::cout << (result.solution_created ? "created: " : "exists: ") << result.solution << '\n';
     return 0;
 }
 
 int command_problem(const std::vector<std::string>& values, const fs::path& root) {
     const Problem problem = resolve_problem(values, root);
-    const cfprobs::WorkspaceResult workspace = cfprobs::Workspace(root).create(problem);
+    const cfx::WorkspaceResult workspace = cfx::Workspace(root).create(problem);
 
     std::string payload;
     try {
-        payload = cfprobs::fetch_problem_in_browser(cfprobs::problem_url(problem));
+        payload = cfx::fetch_problem_in_browser(cfx::problem_url(problem));
     } catch (const std::exception& error) {
-        throw std::runtime_error(std::string(error.what()) + "; use probs cc --once as a fallback");
+        throw std::runtime_error(std::string(error.what()) + "; use cfx cc --once as a fallback");
     }
-    const cfprobs::CompanionPackage package = cfprobs::parse_companion_package(payload, root);
+    const cfx::CompanionPackage package = cfx::parse_companion_package(payload, root);
     if (package.problem.id() != problem.id()) {
         throw std::runtime_error("browser returned " + package.problem.id() + " while fetching " +
                                  problem.id());
     }
-    const cfprobs::ImportResult imported = cfprobs::import_companion_package(package, root, true);
-    cfprobs::remember_current_problem(problem, root);
+    const cfx::ImportResult imported = cfx::import_companion_package(package, root, true);
+    cfx::remember_current_problem(problem, root);
 
     std::cout << "Fetched " << problem.id();
     if (!package.name.empty()) {
@@ -310,7 +331,7 @@ int command_problem(const std::vector<std::string>& values, const fs::path& root
 }
 
 int command_test(Arguments arguments, const fs::path& root) {
-    cfprobs::TestOptions options;
+    cfx::TestOptions options;
     std::vector<std::string> positional;
     while (!arguments.empty()) {
         const std::string argument = arguments.take();
@@ -324,6 +345,10 @@ int command_test(Arguments arguments, const fs::path& root) {
             options.rebuild = true;
         } else if (argument == "--time-limit") {
             options.timeout = duration(arguments.take(), "--time-limit");
+        } else if (argument == "--memory-limit") {
+            options.memory_limit_bytes = mebibytes(arguments.take(), "--memory-limit");
+        } else if (argument == "--output-limit") {
+            options.output_limit_bytes = mebibytes(arguments.take(), "--output-limit");
         } else if (argument.starts_with("-")) {
             throw std::runtime_error("test: unknown option " + argument);
         } else {
@@ -331,7 +356,7 @@ int command_test(Arguments arguments, const fs::path& root) {
         }
     }
     const Problem problem = resolve_problem(positional, root);
-    const cfprobs::TestSummary result = cfprobs::Judge(root).test(problem, options);
+    const cfx::TestSummary result = cfx::Judge(root).test(problem, options);
     return result.success() ? 0 : 1;
 }
 
@@ -353,7 +378,7 @@ int command_bundle(Arguments arguments, const fs::path& root) {
         }
     }
     const Problem problem = resolve_problem(positional, root);
-    const std::string source = cfprobs::bundle(problem.solution_path(), root);
+    const std::string source = cfx::bundle(problem.solution_path(), root);
     if (!output) {
         std::cout << source;
     } else {
@@ -368,7 +393,7 @@ int command_bundle(Arguments arguments, const fs::path& root) {
 }
 
 int command_stress(Arguments arguments, const fs::path& root) {
-    cfprobs::StressOptions options;
+    cfx::StressOptions options;
     std::optional<fs::path> generator;
     std::optional<fs::path> brute;
     std::vector<std::string> positional;
@@ -425,7 +450,7 @@ int command_stress(Arguments arguments, const fs::path& root) {
         options.brute =
             !fs::is_regular_file(preferred) && fs::is_regular_file(legacy) ? legacy : preferred;
     }
-    const cfprobs::StressSummary result = cfprobs::Judge(root).stress(problem, options);
+    const cfx::StressSummary result = cfx::Judge(root).stress(problem, options);
     return result.success() ? 0 : 1;
 }
 
@@ -443,7 +468,7 @@ int command_fail(Arguments arguments, const fs::path& root) {
         positional.push_back(argument);
     }
     const Problem problem = resolve_problem(positional, root);
-    const auto [input, output] = cfprobs::Judge(root).promote_failure(problem);
+    const auto [input, output] = cfx::Judge(root).promote_failure(problem);
     std::cout << "wrote: " << input << '\n' << "wrote: " << output << '\n';
     return 0;
 }
@@ -471,7 +496,7 @@ int command_cc(Arguments arguments, const fs::path& root) {
             throw std::runtime_error("cc: unknown option " + argument);
         }
     }
-    cfprobs::serve_companion(root, host, port, once, force);
+    cfx::serve_companion(root, host, port, once, force);
     return 0;
 }
 
@@ -497,43 +522,48 @@ int command_submit(Arguments arguments, const fs::path& root) {
     }
 
     const Problem problem = resolve_submission_problem(positional, root);
-    const cfprobs::SubmissionArtifact artifact =
-        cfprobs::prepare_submission(root, problem, rebuild);
+    const cfx::SubmissionArtifact artifact =
+        cfx::prepare_submission(root, problem, rebuild);
     std::cout << "Checked build passed\n";
 
     const auto prepare_manual = [&] {
-        cfprobs::copy_submission_to_clipboard(artifact);
+        cfx::copy_submission_to_clipboard(artifact);
         std::cout << "Copied tested bundle " << artifact.source_hash.substr(0, 16)
                   << " to the clipboard\n";
-        cfprobs::open_browser_url(artifact.page_url);
+        cfx::open_browser_url(artifact.page_url);
         std::cout << "Opened Codeforces submission page for " << artifact.target << '\n'
                   << "Paste and submit as " << artifact.language << '\n';
     };
     if (manual) {
         prepare_manual();
-        return 0;
+        return 2;
     }
 
-    cfprobs::BrowserSubmitReceipt receipt;
+    cfx::BrowserSubmitReceipt receipt;
     try {
-        receipt = cfprobs::submit_in_browser(cfprobs::BrowserSubmitRequest{
+        receipt = cfx::submit_in_browser(cfx::BrowserSubmitRequest{
             artifact.page_url,
             artifact.target,
             problem.index(),
             artifact.language,
             artifact.source_text,
         });
-    } catch (const cfprobs::BrowserConnectorUnavailable&) {
+    } catch (const cfx::BrowserConnectorUnavailable&) {
         std::cout << "Chrome connector unavailable; using manual submission\n";
         prepare_manual();
-        return 0;
+        return 2;
     }
     std::cout << "Submitted " << artifact.target << " as " << artifact.language << '\n'
-              << receipt.submission_url << '\n';
-    if (!receipt.verdict.empty() && receipt.verdict != "submitted") {
-        std::cout << "Verdict: " << receipt.verdict << '\n';
-    }
-    return 0;
+              << "Submission: " << receipt.submission_id << '\n'
+              << "URL: " << receipt.submission_url << '\n'
+              << "Verdict: " << receipt.verdict_text << '\n'
+              << "Tests passed: " << receipt.passed_test_count << '\n'
+              << "Time: " << receipt.time_consumed_millis << " ms\n"
+              << "Memory: " << cfx::format_bytes(receipt.memory_consumed_bytes) << '\n'
+              << "Judging wait: "
+              << cfx::format_duration(std::chrono::milliseconds(receipt.judging_wait_millis))
+              << '\n';
+    return receipt.verdict == "OK" ? 0 : 1;
 }
 
 fs::path select_root(std::vector<std::string>& values) {
@@ -553,11 +583,11 @@ fs::path select_root(std::vector<std::string>& values) {
     if (explicit_root) {
         return fs::weakly_canonical(*explicit_root);
     }
-    const char* environment_root = std::getenv("CF_PROBS_ROOT");
+    const char* environment_root = std::getenv("CFX_ROOT");
     if (environment_root != nullptr && *environment_root != '\0') {
         return fs::weakly_canonical(environment_root);
     }
-    return cfprobs::find_workspace_root(fs::current_path());
+    return cfx::find_workspace_root(fs::current_path());
 }
 
 } // namespace
@@ -624,7 +654,7 @@ int main(int argc, char** argv) {
         }
         return command_problem(problem, root);
     } catch (const std::exception& error) {
-        std::cerr << "probs: " << error.what() << '\n';
+        std::cerr << "cfx: " << error.what() << '\n';
         return 2;
     }
 }

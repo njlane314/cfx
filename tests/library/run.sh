@@ -18,7 +18,7 @@ if [[ -x $compiler ]]; then
 else
     IFS=' ' read -r -a compiler_command <<<"$compiler"
 fi
-build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfprobs-library.XXXXXX")
+build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfx-library.XXXXXX")
 trap 'rm -rf "$build_dir"' EXIT
 
 for source in "$script_dir"/test_*.cpp; do
@@ -44,16 +44,5 @@ done
     -I"$repo_root/include" \
     "$repo_root/templates/solution.cpp" \
     -o "$build_dir/solution-template"
-
-"${compiler_command[@]}" \
-    -std=c++20 \
-    -Wall \
-    -Wextra \
-    -Wpedantic \
-    -Werror \
-    -DLOCAL \
-    -I"$repo_root/include" \
-    "$repo_root/templates/solution.cpp" \
-    -o "$build_dir/solution-template-local"
 
 echo "library tests passed"

@@ -8,7 +8,7 @@
     <path d="M28 34h12" fill="none" stroke="#50c878"
           stroke-linecap="round" stroke-width="5"/>
     <text x="68" y="36" fill="#182033" font-family="Arial, sans-serif"
-          font-size="28" font-weight="700">cf-probs</text>
+          font-size="28" font-weight="700">cfx</text>
   </g>
   <rect x="1002" y="56" width="214" height="40" rx="20" fill="#dce6f5"/>
   <text x="1109" y="82" text-anchor="middle" fill="#33415c"
@@ -30,14 +30,14 @@
         font-family="Menlo, Consolas, monospace" font-size="16">problems/cf/71/A</text>
 
   <g font-family="Menlo, Consolas, monospace" font-size="21">
-    <text x="104" y="349" fill="#50c878">$ <tspan fill="#f7f9fc">probs 71A</tspan></text>
+    <text x="104" y="349" fill="#50c878">$ <tspan fill="#f7f9fc">cfx 71A</tspan></text>
     <text x="104" y="389" fill="#cbd5e1">Fetched 71A — Way Too Long Words</text>
     <text x="104" y="425" fill="#cbd5e1">Imported 2 samples</text>
     <text x="104" y="461" fill="#cbd5e1">Opened problems/cf/71/A/solution.cpp</text>
 
     <path d="M104 500h1072" stroke="#2b364a" stroke-width="2"/>
 
-    <text x="104" y="551" fill="#50c878">$ <tspan fill="#f7f9fc">probs submit</tspan></text>
+    <text x="104" y="551" fill="#50c878">$ <tspan fill="#f7f9fc">cfx submit</tspan></text>
     <text x="104" y="591" fill="#cbd5e1">2/2 tests passed</text>
     <text x="104" y="627" fill="#cbd5e1">Checked build passed</text>
     <text x="104" y="663" fill="#cbd5e1">Submitted 71A as GNU C++20</text>

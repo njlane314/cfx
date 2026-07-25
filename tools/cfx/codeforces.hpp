@@ -4,7 +4,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 
 class Problem;
 
@@ -14,4 +14,4 @@ std::vector<std::string> fetch_contest_indexes(const std::string& contest_id);
 std::string problem_url(const Problem& problem);
 std::string submission_url(const Problem& problem);
 
-} // namespace cfprobs
+} // namespace cfx

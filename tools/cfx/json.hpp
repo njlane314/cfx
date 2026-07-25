@@ -7,7 +7,7 @@
 #include <variant>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 
 class JsonError : public std::runtime_error {
   public:
@@ -46,4 +46,4 @@ class Json {
 Json parse_json(std::string_view input);
 std::string json_quote(std::string_view value);
 
-} // namespace cfprobs
+} // namespace cfx

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const messageType = "cfprobs-local-request";
+  const messageType = "cfx-local-request";
   const routes = new Set(["ready", "submission", "fetch", "fetch-error", "result"]);
   const maximumBodyBytes = 16 * 1024 * 1024;
   const maximumResponseBytes = 16 * 1024 * 1024;
@@ -29,6 +29,11 @@
       /^\/problemset\/problem\/[0-9]+\/[^/]+\/?$/i.test(url.pathname) ||
       /^\/contest\/[0-9]+\/submit\/?$/i.test(url.pathname) ||
       /^\/problemset\/submit\/?$/i.test(url.pathname) ||
+      /^\/problemset\/status\/?$/i.test(url.pathname) ||
+      /^\/contest\/[0-9]+\/(?:my|status)\/?$/i.test(url.pathname) ||
+      /^\/contest\/[0-9]+\/submission\/[0-9]+\/?$/i.test(url.pathname) ||
+      /^\/problemset\/submission\/[0-9]+\/[0-9]+\/?$/i.test(url.pathname) ||
+      /^\/submissions\/[^/]+\/?$/i.test(url.pathname) ||
       /^\/enter\/?$/i.test(url.pathname)
     );
   }
@@ -72,7 +77,7 @@
         {
           method: request.method,
           headers: {
-            "X-Cfprobs-Extension": chrome.runtime.id,
+            "X-Cfx-Extension": chrome.runtime.id,
             ...(request.method === "POST"
               ? {"Content-Type": "text/plain;charset=UTF-8"}
               : {})

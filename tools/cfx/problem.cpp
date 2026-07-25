@@ -1,4 +1,4 @@
-#include "cfprobs/problem.hpp"
+#include "cfx/problem.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -6,7 +6,7 @@
 #include <system_error>
 #include <utility>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
@@ -246,4 +246,4 @@ fs::path find_workspace_root(const fs::path& start) {
     return normalized_absolute(start);
 }
 
-} // namespace cfprobs
+} // namespace cfx

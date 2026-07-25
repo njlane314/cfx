@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace cfprobs {
+namespace cfx {
 
 class BundleError : public std::runtime_error {
   public:
@@ -25,4 +25,4 @@ class Bundler {
 bundle(const std::filesystem::path& source,
        const std::filesystem::path& root = std::filesystem::current_path());
 
-} // namespace cfprobs
+} // namespace cfx

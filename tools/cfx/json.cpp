@@ -7,7 +7,7 @@
 #include <iomanip>
 #include <sstream>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 class Parser {
@@ -381,4 +381,4 @@ std::string json_quote(std::string_view value) {
     return output.str();
 }
 
-} // namespace cfprobs
+} // namespace cfx

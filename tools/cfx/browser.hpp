@@ -2,10 +2,11 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
-namespace cfprobs {
+namespace cfx {
 
 class BrowserConnectorUnavailable : public std::runtime_error {
   public:
@@ -22,13 +23,22 @@ struct BrowserSubmitRequest {
 
 struct BrowserSubmitReceipt {
     std::string submission_url;
+    std::string submission_id;
     std::string verdict;
+    std::string verdict_text;
+    std::uint64_t passed_test_count = 0;
+    std::uint64_t time_consumed_millis = 0;
+    std::uint64_t memory_consumed_bytes = 0;
+    std::uint64_t judging_wait_millis = 0;
 };
 
 struct BrowserBridgeOptions {
     std::chrono::milliseconds request_timeout{5000};
-    std::chrono::milliseconds connect_timeout{8000};
-    std::chrono::milliseconds wait_timeout{120000};
+    // A cold Chrome launch can take well over eight seconds before its
+    // extension service worker and first Codeforces content script are ready.
+    std::chrono::milliseconds connect_timeout{30000};
+    // Covers the browser's verification challenge plus its 4m45s judge poll.
+    std::chrono::milliseconds wait_timeout{370000};
     std::size_t max_source_bytes = 1024 * 1024;
     std::size_t max_fetch_bytes = 16 * 1024 * 1024;
     std::size_t max_result_bytes = 64 * 1024;
@@ -36,7 +46,7 @@ struct BrowserBridgeOptions {
     std::string extension_id;
 };
 
-// Open a URL in Chrome, or with CFPROBS_BROWSER when it is configured.
+// Open a URL in Chrome, or with CFX_BROWSER when it is configured.
 void open_browser_url(const std::string& url);
 
 // Opens a Codeforces problem page and waits for the browser extension to send
@@ -49,4 +59,4 @@ std::string fetch_problem_in_browser(const std::string& page_url,
 BrowserSubmitReceipt submit_in_browser(const BrowserSubmitRequest& request,
                                        const BrowserBridgeOptions& options = {});
 
-} // namespace cfprobs
+} // namespace cfx

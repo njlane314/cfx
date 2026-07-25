@@ -1,6 +1,6 @@
-#include "cfprobs/bundle.hpp"
-#include "cfprobs/problem.hpp"
-#include "cfprobs/workspace.hpp"
+#include "cfx/bundle.hpp"
+#include "cfx/problem.hpp"
+#include "cfx/workspace.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -17,7 +17,7 @@ class TemporaryDirectory {
   public:
     TemporaryDirectory() {
         const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        path_ = fs::temp_directory_path() / ("cfprobs-core-tests-" + std::to_string(stamp));
+        path_ = fs::temp_directory_path() / ("cfx-core-tests-" + std::to_string(stamp));
         fs::create_directories(path_);
     }
 
@@ -57,7 +57,7 @@ void require(bool condition, const std::string& message) {
 template <class Function> void require_bundle_error(Function&& function, std::string_view text) {
     try {
         function();
-    } catch (const cfprobs::BundleError& error) {
+    } catch (const cfx::BundleError& error) {
         require(std::string(error.what()).find(text) != std::string::npos,
                 "bundle error did not mention " + std::string(text));
         return;
@@ -68,7 +68,7 @@ template <class Function> void require_bundle_error(Function&& function, std::st
 template <class Function> void require_workspace_error(Function&& function, std::string_view text) {
     try {
         function();
-    } catch (const cfprobs::WorkspaceError& error) {
+    } catch (const cfx::WorkspaceError& error) {
         require(std::string(error.what()).find(text) != std::string::npos,
                 "workspace error did not mention " + std::string(text));
         return;
@@ -80,26 +80,26 @@ void test_problem_parsing() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
 
-    const auto canonical = cfprobs::Problem::parse("71A", root);
+    const auto canonical = cfx::Problem::parse("71A", root);
     require(canonical.id() == "71A", "canonical ID");
     require(canonical.legacy_id() == "A.71", "legacy ID");
-    require(cfprobs::Problem::parse("a.71", root).id() == "71A", "legacy spelling");
-    require(cfprobs::Problem::parse("a", "71", root).id() == "71A", "two-token spelling");
-    require(cfprobs::Problem::parse("https://codeforces.com/problemset/problem/71/A", root).id() ==
+    require(cfx::Problem::parse("a.71", root).id() == "71A", "legacy spelling");
+    require(cfx::Problem::parse("a", "71", root).id() == "71A", "two-token spelling");
+    require(cfx::Problem::parse("https://codeforces.com/problemset/problem/71/A", root).id() ==
                 "71A",
             "problemset URL");
-    require(cfprobs::Problem::parse("https://codeforces.com/contest/2227/problem/c?locale=en", root)
+    require(cfx::Problem::parse("https://codeforces.com/contest/2227/problem/c?locale=en", root)
                     .id() == "2227C",
             "contest URL");
-    require(cfprobs::Problem::parse("problems/cf/2227/B/solution.cpp", root).id() == "2227B",
+    require(cfx::Problem::parse("problems/cf/2227/B/solution.cpp", root).id() == "2227B",
             "new-layout path");
-    require(cfprobs::Problem::parse("solutions/A.71.cpp", root).id() == "71A", "legacy path");
+    require(cfx::Problem::parse("solutions/A.71.cpp", root).id() == "71A", "legacy path");
 }
 
 void test_problem_paths_and_fallback() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
-    const auto problem = cfprobs::Problem::parse("71A", root);
+    const auto problem = cfx::Problem::parse("71A", root);
 
     require(problem.solution_path() == problem.preferred_solution_path(),
             "new path is preferred for a new problem");
@@ -122,8 +122,8 @@ void test_workspace_creation_is_idempotent() {
     const auto& root = temporary.path();
     write(root / "templates" / "solution.cpp", "// template\n");
 
-    const auto problem = cfprobs::Problem::parse("2227A", root);
-    const cfprobs::Workspace workspace(root);
+    const auto problem = cfx::Problem::parse("2227A", root);
+    const cfx::Workspace workspace(root);
     const auto first = workspace.create(problem);
     require(first.solution_created, "solution created");
     require(read(first.solution) == "// template\n", "template copied");
@@ -142,11 +142,11 @@ void test_workspace_migrates_legacy_source_without_shadowing() {
     const auto& root = temporary.path();
     write(root / "templates" / "solution.cpp", "// blank template\n");
 
-    const auto problem = cfprobs::Problem::parse("71A", root);
+    const auto problem = cfx::Problem::parse("71A", root);
     write(problem.legacy_solution_path(), "// keep legacy solution\n");
     write(problem.legacy_tests_path() / "case-1.in", "input\n");
 
-    const auto result = cfprobs::Workspace(root).create(problem);
+    const auto result = cfx::Workspace(root).create(problem);
     require(result.solution_created, "preferred source created during migration");
     require(read(result.solution) == "// keep legacy solution\n",
             "legacy source copied instead of blank template");
@@ -160,29 +160,29 @@ void test_current_problem_record() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
 
-    require(!cfprobs::current_problem(root), "current problem initially absent");
+    require(!cfx::current_problem(root), "current problem initially absent");
 
-    const auto first = cfprobs::Problem::parse("2227A", root);
-    cfprobs::remember_current_problem(first, root);
+    const auto first = cfx::Problem::parse("2227A", root);
+    cfx::remember_current_problem(first, root);
     require(read(root / ".build" / "current-problem") == "2227A\n",
             "current problem stored as a small canonical record");
-    require(cfprobs::current_problem(root)->id() == "2227A", "current problem restored");
+    require(cfx::current_problem(root)->id() == "2227A", "current problem restored");
 
-    const auto second = cfprobs::Problem::parse("71A", root);
-    cfprobs::remember_current_problem(second, root);
-    require(cfprobs::current_problem(root)->id() == "71A", "current problem replaced");
+    const auto second = cfx::Problem::parse("71A", root);
+    cfx::remember_current_problem(second, root);
+    require(cfx::current_problem(root)->id() == "71A", "current problem replaced");
 
     write(root / ".build" / "current-problem", "not a problem\n");
-    require_workspace_error([&] { static_cast<void>(cfprobs::current_problem(root)); },
-                            "run probs PROBLEM again");
+    require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
+                            "run cfx PROBLEM again");
 
     write(root / ".build" / "current-problem", "71a\n");
-    require_workspace_error([&] { static_cast<void>(cfprobs::current_problem(root)); },
-                            "run probs PROBLEM again");
+    require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
+                            "run cfx PROBLEM again");
 
     write(root / ".build" / "current-problem", std::string(65, '1'));
-    require_workspace_error([&] { static_cast<void>(cfprobs::current_problem(root)); },
-                            "run probs PROBLEM again");
+    require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
+                            "run cfx PROBLEM again");
 }
 
 void test_nested_and_repeated_bundling() {
@@ -201,7 +201,7 @@ void test_nested_and_repeated_bundling() {
     write(root / "sibling.hpp", "#pragma once\nconstexpr int sibling = 2;\n");
     write(root / "shared.hpp", "#pragma once\nconstexpr int shared = 3;\n");
 
-    const auto output = cfprobs::bundle(root / "main.cpp", root);
+    const auto output = cfx::bundle(root / "main.cpp", root);
     require(output.find("#include <vector>") != std::string::npos, "system include preserved");
     require(output.find("constexpr int nested = 1;") != std::string::npos,
             "nested include expanded");
@@ -219,17 +219,17 @@ void test_include_root_and_errors() {
     const auto& root = temporary.path();
     write(root / "include" / "cp" / "value.hpp", "#pragma once\nconstexpr int value = 4;\n");
     write(root / "source.cpp", "#include \"cp/value.hpp\"\nint answer = value;\n");
-    require(cfprobs::bundle("source.cpp", root).find("constexpr int value = 4;") !=
+    require(cfx::bundle("source.cpp", root).find("constexpr int value = 4;") !=
                 std::string::npos,
             "workspace include root");
 
     write(root / "missing.cpp", "#include \"not-there.hpp\"\n");
-    require_bundle_error([&] { static_cast<void>(cfprobs::bundle("missing.cpp", root)); },
+    require_bundle_error([&] { static_cast<void>(cfx::bundle("missing.cpp", root)); },
                          "not-there.hpp");
 
     write(root / "a.hpp", "#include \"b.hpp\"\n");
     write(root / "b.hpp", "#include \"a.hpp\"\n");
-    require_bundle_error([&] { static_cast<void>(cfprobs::bundle("a.hpp", root)); }, "cycle");
+    require_bundle_error([&] { static_cast<void>(cfx::bundle("a.hpp", root)); }, "cycle");
 }
 
 } // namespace

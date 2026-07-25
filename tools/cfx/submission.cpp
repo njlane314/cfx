@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace cfprobs {
+namespace cfx {
 namespace {
 
 namespace fs = std::filesystem;
@@ -86,11 +86,11 @@ bool executable(std::string_view name) {
 #endif
 
 std::vector<std::string> clipboard_command() {
-    if (const char* configured = std::getenv("CFPROBS_CLIPBOARD");
+    if (const char* configured = std::getenv("CFX_CLIPBOARD");
         configured != nullptr && *configured != '\0') {
         std::vector<std::string> command = split_command_words(configured);
         if (command.empty()) {
-            throw std::runtime_error("CFPROBS_CLIPBOARD is empty");
+            throw std::runtime_error("CFX_CLIPBOARD is empty");
         }
         return command;
     }
@@ -120,8 +120,11 @@ std::vector<std::string> clipboard_command() {
 
 SubmissionArtifact prepare_submission(const fs::path& root, const Problem& problem, bool rebuild) {
     Judge judge(root);
-    const TestSummary tests =
-        judge.test(problem, TestOptions{false, rebuild, std::chrono::milliseconds(5000), true});
+    TestOptions test_options;
+    test_options.rebuild = rebuild;
+    test_options.concise = true;
+    test_options.submission_profile = true;
+    const TestSummary tests = judge.test(problem, test_options);
     if (!tests.success()) {
         throw std::runtime_error("submission stopped: saved tests failed");
     }
@@ -154,15 +157,12 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
 void copy_submission_to_clipboard(const SubmissionArtifact& artifact) {
     const ProcessResult result =
         run_process(clipboard_command(), ProcessOptions{
-                                             artifact.source,
-                                             std::nullopt,
-                                             std::nullopt,
-                                             std::chrono::seconds(10),
-                                             std::nullopt,
+                                             .stdin_path = artifact.source,
+                                             .timeout = std::chrono::seconds(10),
                                          });
     if (result.status != 0) {
         throw std::runtime_error("cannot copy the tested bundle to the clipboard");
     }
 }
 
-} // namespace cfprobs
+} // namespace cfx

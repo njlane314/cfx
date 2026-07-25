@@ -12,13 +12,13 @@ while [ -L "$script" ]; do
 done
 
 root=$(cd -P "$(dirname "$script")/.." >/dev/null 2>&1 && pwd)
-source_dir=$root/tools/cfprobs
+source_dir=$root/tools/cfx
 build_dir=$root/.build/tools
-executable=$build_dir/probs
-configuration_file=$build_dir/probs.config
+executable=$build_dir/cfx
+configuration_file=$build_dir/cfx.config
 
-if [ -n "${PROBS_CXX:-}" ]; then
-    compiler=$PROBS_CXX
+if [ -n "${CFX_CXX:-}" ]; then
+    compiler=$CFX_CXX
 elif [ -n "${CXX:-}" ]; then
     compiler=$CXX
 elif [ -x /opt/homebrew/opt/llvm/bin/clang++ ]; then
@@ -28,7 +28,7 @@ elif [ -x /usr/local/opt/llvm/bin/clang++ ]; then
 else
     compiler=c++
 fi
-standard=${PROBS_STD:-c++20}
+standard=${CFX_STD:-c++20}
 configuration=$compiler'|'$standard
 
 needs_build=false
@@ -48,12 +48,12 @@ fi
 if [ "$needs_build" = true ]; then
     sources=("$source_dir"/*.cpp)
     if [ ! -e "${sources[0]}" ]; then
-        echo "probs: no C++ sources found in $source_dir" >&2
+        echo "cfx: no C++ sources found in $source_dir" >&2
         exit 1
     fi
 
     mkdir -p "$build_dir"
-    echo "probs: building C++ command" >&2
+    echo "cfx: building C++ command" >&2
     temporary=$executable.tmp.$$
     trap 'rm -f "$temporary"' EXIT HUP INT TERM
 
@@ -63,13 +63,12 @@ if [ "$needs_build" = true ]; then
         IFS=' ' read -r -a compiler_command <<<"$compiler"
     fi
     if [ "${#compiler_command[@]}" -eq 0 ]; then
-        echo "probs: compiler command is empty" >&2
+        echo "cfx: compiler command is empty" >&2
         exit 1
     fi
 
     "${compiler_command[@]}" \
         "-std=$standard" \
-        -O2 \
         -Wall \
         -Wextra \
         -Wpedantic \
@@ -87,7 +86,7 @@ if [ "$needs_build" = true ]; then
     trap - EXIT HUP INT TERM
 fi
 
-export CF_PROBS_ROOT=$root
+export CFX_ROOT=$root
 if [ -z "${CXX:-}" ]; then
     export CXX=$compiler
 fi

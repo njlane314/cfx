@@ -1,21 +1,26 @@
-#include "cfprobs/browser.hpp"
-#include "cfprobs/codeforces.hpp"
-#include "cfprobs/companion.hpp"
-#include "cfprobs/compiler.hpp"
-#include "cfprobs/hash.hpp"
-#include "cfprobs/json.hpp"
-#include "cfprobs/judge.hpp"
-#include "cfprobs/process.hpp"
-#include "cfprobs/submission.hpp"
+#include "cfx/browser.hpp"
+#include "cfx/codeforces.hpp"
+#include "cfx/companion.hpp"
+#include "cfx/compiler.hpp"
+#include "cfx/hash.hpp"
+#include "cfx/json.hpp"
+#include "cfx/judge.hpp"
+#include "cfx/process.hpp"
+#include "cfx/submission.hpp"
 
 #include <chrono>
+#include <cerrno>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 
@@ -24,7 +29,7 @@ namespace fs = std::filesystem;
 class TemporaryDirectory {
   public:
     TemporaryDirectory()
-        : path_(fs::temp_directory_path() / ("cfprobs-tool-tests-" + std::to_string(::getpid()))) {
+        : path_(fs::temp_directory_path() / ("cfx-tool-tests-" + std::to_string(::getpid()))) {
         std::error_code ignored;
         fs::remove_all(path_, ignored);
         fs::create_directories(path_);
@@ -75,47 +80,113 @@ template <class Action> void check_throws(Action action, const std::string& mess
 }
 
 void test_json_and_codeforces() {
-    const cfprobs::Json value =
-        cfprobs::parse_json(R"({"text":"line\nnext","values":[true,null,2.5]})");
+    const cfx::Json value =
+        cfx::parse_json(R"({"text":"line\nnext","values":[true,null,2.5]})");
     check(value.at("text").string() == "line\nnext", "JSON string decoding");
     check(value.at("values").array().size() == 3, "JSON array decoding");
-    check(cfprobs::json_quote("a\n\"b") == "\"a\\n\\\"b\"", "JSON quoting");
+    check(cfx::json_quote("a\n\"b") == "\"a\\n\\\"b\"", "JSON quoting");
 
     const std::vector<std::string> indexes =
-        cfprobs::parse_contest_indexes(R"({"status":"OK","result":{"problems":[)"
+        cfx::parse_contest_indexes(R"({"status":"OK","result":{"problems":[)"
                                        R"({"index":"A"},{"index":"B1"},{"index":"A"}]}})");
     check(indexes == std::vector<std::string>({"A", "B1"}),
           "contest indexes preserve order and remove duplicates");
     check_throws(
         [] {
-            (void)cfprobs::parse_contest_indexes(R"({"status":"FAILED","comment":"bad contest"})");
+            (void)cfx::parse_contest_indexes(R"({"status":"FAILED","comment":"bad contest"})");
         },
         "failed API responses must throw");
 }
 
-void test_process_and_normalization(const fs::path& root) {
-    check(cfprobs::split_command_words(R"(one "two three" 'four five')") ==
+void test_process_and_normalization(const fs::path& root, const fs::path& executable) {
+    check(cfx::split_command_words(R"(one "two three" 'four five')") ==
               std::vector<std::string>({"one", "two three", "four five"}),
           "command word splitting");
-    check(cfprobs::normalize_output("one  \n\n two\t\n") == "one\n two", "output normalization");
+    check(cfx::normalize_output("one  \n\n two\t\n") == "one\n two", "output normalization");
 
-    const cfprobs::ProcessResult timeout =
-        cfprobs::run_process({"/bin/sh", "-c", "sleep 1"}, cfprobs::ProcessOptions{
-                                                               std::nullopt,
-                                                               root / "timeout.out",
-                                                               root / "timeout.err",
-                                                               std::chrono::milliseconds(20),
-                                                               std::nullopt,
+    const cfx::ProcessResult timeout =
+        cfx::run_process({"/bin/sh", "-c", "sleep 1"}, cfx::ProcessOptions{
+                                                               .stdout_path = root / "timeout.out",
+                                                               .stderr_path = root / "timeout.err",
+                                                               .timeout =
+                                                                   std::chrono::milliseconds(20),
                                                            });
     check(timeout.timed_out && timeout.status == 124, "process timeout");
+    check(timeout.signal == SIGKILL && timeout.exit_code == -1,
+          "timeout preserves the terminating signal");
+    check(timeout.elapsed >= std::chrono::milliseconds(20), "timeout does not fire early");
+
+    const cfx::ProcessResult failed =
+        cfx::run_process({executable.string(), "--cfx-test-exit"});
+    check(failed.status == 7 && failed.exit_code == 7 && failed.signal == 0,
+          "normal nonzero exit is preserved");
+
+    const cfx::ProcessResult signaled =
+        cfx::run_process({executable.string(), "--cfx-test-signal"});
+    check(signaled.status == 128 + SIGSEGV && signaled.exit_code == -1 &&
+              signaled.signal == SIGSEGV,
+          "fatal signal is preserved");
+
+    const cfx::ProcessResult memory = cfx::run_process(
+        {executable.string(), "--cfx-test-memory"},
+        cfx::ProcessOptions{std::nullopt, root / "memory.out", root / "memory.err",
+                            std::chrono::seconds(2), std::nullopt, 16U * 1024U * 1024U});
+    check(memory.memory_limit_exceeded && memory.status == 125 && !memory.timed_out,
+          "memory limit is classified separately from the kill signal");
+    check(memory.peak_memory_bytes > 16U * 1024U * 1024U, "peak memory is measured");
+
+    const cfx::ProcessResult output = cfx::run_process(
+        {executable.string(), "--cfx-test-output"},
+        cfx::ProcessOptions{std::nullopt, root / "output.out", root / "output.err",
+                            std::chrono::seconds(2), std::nullopt, std::nullopt, 32U * 1024U});
+    check(output.output_limit_exceeded && output.signal == SIGXFSZ,
+          "output limit is classified separately from runtime error");
+    check(fs::file_size(root / "output.out") <= 32U * 1024U, "output file is capped");
+
+    const fs::path descendant_marker = root / "descendant";
+    const cfx::ProcessResult descendant = cfx::run_process(
+        {executable.string(), "--cfx-test-descendant", descendant_marker.string()});
+    check(descendant.status == 0, "descendant fixture leader exits normally");
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    check(!fs::exists(descendant_marker.string() + ".survived"),
+          "normal process exit cleans up descendants");
+
+    const fs::path forwarded_marker = root / "forwarded-signal";
+    const pid_t supervisor = ::fork();
+    check(supervisor >= 0, "signal-forwarding fixture forks");
+    if (supervisor == 0) {
+        ::execl(executable.c_str(), executable.c_str(), "--cfx-test-forward-signal",
+                forwarded_marker.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    for (int attempt = 0; attempt < 200 && !fs::is_regular_file(forwarded_marker); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    check(fs::is_regular_file(forwarded_marker), "signal-forwarding child starts");
+    const pid_t worker = static_cast<pid_t>(std::stol(read(forwarded_marker)));
+    check(::kill(supervisor, SIGTERM) == 0, "signal-forwarding supervisor is interrupted");
+    int supervisor_status = 0;
+    check(::waitpid(supervisor, &supervisor_status, 0) == supervisor,
+          "signal-forwarding supervisor is reaped");
+    check(WIFSIGNALED(supervisor_status) && WTERMSIG(supervisor_status) == SIGTERM,
+          "interrupt is re-raised after forwarding");
+    bool worker_gone = false;
+    for (int attempt = 0; attempt < 200; ++attempt) {
+        if (::kill(worker, 0) != 0 && errno == ESRCH) {
+            worker_gone = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    check(worker_gone, "interrupt cleans up the child process group");
 
     const auto detached_started = std::chrono::steady_clock::now();
-    cfprobs::launch_detached_process({"/bin/sh", "-c", "sleep 1"});
+    cfx::launch_detached_process({"/bin/sh", "-c", "sleep 1"});
     const auto detached_elapsed = std::chrono::steady_clock::now() - detached_started;
     check(detached_elapsed < std::chrono::milliseconds(500),
           "detached process returns without waiting for completion");
     check_throws(
-        [] { cfprobs::launch_detached_process({"/definitely/missing/cfprobs-command"}); },
+        [] { cfx::launch_detached_process({"/definitely/missing/cfx-command"}); },
         "detached process reports exec failure");
 }
 
@@ -123,23 +194,23 @@ void test_build_cache(const fs::path& root) {
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 7\n");
     write(root / "solution.cpp", "#include <value.hpp>\n"
                                  "int main() { return VALUE == 7 ? 0 : 1; }\n");
-    const cfprobs::Builder builder(root);
-    const cfprobs::BuildResult first = builder.build_source(root / "solution.cpp", "cache-test");
+    const cfx::Builder builder(root);
+    const cfx::BuildResult first = builder.build_source(root / "solution.cpp", "cache-test");
     check(first.compiled, "first cache build compiles");
-    const cfprobs::BuildResult second = builder.build_source(root / "solution.cpp", "cache-test");
+    const cfx::BuildResult second = builder.build_source(root / "solution.cpp", "cache-test");
     check(!second.compiled, "unchanged build uses cache");
     check(first.digest == second.digest, "unchanged digest is stable");
 
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 8\n");
-    const cfprobs::BuildResult third = builder.build_source(root / "solution.cpp", "cache-test");
+    const cfx::BuildResult third = builder.build_source(root / "solution.cpp", "cache-test");
     check(third.compiled, "included-header edit rebuilds");
     check(third.digest != first.digest, "included-header edit changes digest");
 
     write(root / "submission.cpp",
           "#ifdef LOCAL\n#error submission build must not define LOCAL\n#endif\n"
           "int main() {}\n");
-    const cfprobs::BuildResult submission = builder.build_source(
-        root / "submission.cpp", "submission-mode", cfprobs::BuildOptions{true, false, false});
+    const cfx::BuildResult submission = builder.build_source(
+        root / "submission.cpp", "submission-mode", cfx::BuildOptions{true, false, false});
     check(submission.compiled, "submission mode compiles without LOCAL");
 }
 
@@ -149,39 +220,97 @@ void test_companion_import(const fs::path& root) {
                                 R"("url":"https://codeforces.com/contest/71/problem/A",)"
                                 R"("timeLimit":1000,"memoryLimit":256,)"
                                 R"("tests":[{"input":"1\nword\n","output":"word\n"}]})";
-    const cfprobs::CompanionPackage package = cfprobs::parse_companion_package(payload, root);
+    const cfx::CompanionPackage package = cfx::parse_companion_package(payload, root);
     check(package.problem.id() == "71A", "Companion URL parsing");
-    const cfprobs::ImportResult first = cfprobs::import_companion_package(package, root);
+    const cfx::ImportResult first = cfx::import_companion_package(package, root);
     check(first.files_written == 2, "first Companion import writes pair");
     check(read(package.problem.samples_path() / "01.in") == "1\nword\n", "Companion input content");
-    const cfprobs::ImportResult second = cfprobs::import_companion_package(package, root);
+    const cfx::ImportResult second = cfx::import_companion_package(package, root);
     check(second.files_written == 0, "Companion import is idempotent");
 
     write(package.problem.samples_path() / "02.in", "stale\n");
     write(package.problem.samples_path() / "02.out", "stale\n");
-    check_throws([&] { (void)cfprobs::import_companion_package(package, root); },
+    check_throws([&] { (void)cfx::import_companion_package(package, root); },
                  "shorter sample refresh requires force");
     check(fs::is_regular_file(package.problem.samples_path() / "02.in"),
           "rejected refresh preserves stale pair");
-    const cfprobs::ImportResult shortened = cfprobs::import_companion_package(package, root, true);
+    const cfx::ImportResult shortened = cfx::import_companion_package(package, root, true);
     check(shortened.files_written == 2, "forced refresh replaces complete set");
     check(!fs::exists(package.problem.samples_path() / "02.in") &&
               !fs::exists(package.problem.samples_path() / "02.out"),
           "forced refresh removes stale pairs");
 
-    cfprobs::CompanionPackage changed = package;
+    cfx::CompanionPackage changed = package;
     changed.samples.front().input = "different\n";
-    check_throws([&] { (void)cfprobs::import_companion_package(changed, root); },
+    check_throws([&] { (void)cfx::import_companion_package(changed, root); },
                  "differing sample pair requires force");
     check(read(package.problem.samples_path() / "01.in") == "1\nword\n",
           "failed pair update preserves existing input");
-    const cfprobs::ImportResult forced = cfprobs::import_companion_package(changed, root, true);
+    const cfx::ImportResult forced = cfx::import_companion_package(changed, root, true);
     check(forced.files_written == 2, "forced pair refresh");
     check(read(package.problem.samples_path() / "01.in") == "different\n", "forced input content");
 }
 
+void test_problem_limits_and_verdicts(const fs::path& root) {
+    const cfx::Problem problem("89", "A", root);
+    write(problem.preferred_solution_path(),
+          "#include <iostream>\n"
+          "#include <string>\n"
+          "#include <unistd.h>\n"
+          "int main() { std::string mode; std::cin >> mode; "
+          "if (mode == \"AC\") { std::cout << \"yes\\n\"; return 0; } "
+          "if (mode == \"WA\") { std::cout << \"no\\n\"; return 0; } "
+          "if (mode == \"RE\") return 7; for (;;) ::pause(); }\n");
+    write(problem.directory() / "problem.json",
+          "{\"id\":\"89A\",\"timeLimitMs\":1000,\"memoryLimitMb\":256}\n");
+    for (const auto& [number, input] :
+         std::vector<std::pair<std::string, std::string>>{{"01", "AC\n"}, {"02", "WA\n"},
+                                                          {"03", "RE\n"}, {"04", "TLE\n"}}) {
+        write(problem.samples_path() / (number + ".in"), input);
+        write(problem.samples_path() / (number + ".out"), "yes\n");
+    }
+
+    const cfx::ProblemLimits limits = cfx::load_problem_limits(problem);
+    check(limits.time_limit == std::chrono::seconds(1) && limits.time_from_metadata,
+          "time limit is loaded from problem metadata");
+    check(limits.memory_limit_bytes == 256U * 1024U * 1024U && limits.memory_from_metadata,
+          "memory limit is loaded from problem metadata");
+
+    const cfx::TestSummary summary = cfx::Judge(root).test(problem);
+    check(summary.total == 4 && summary.passed == 1 && summary.cases.size() == 4,
+          "judge returns one structured result per case");
+    check(summary.cases[0].verdict == cfx::CaseVerdict::accepted, "accepted verdict");
+    check(summary.cases[1].verdict == cfx::CaseVerdict::wrong_answer, "wrong-answer verdict");
+    check(summary.cases[2].verdict == cfx::CaseVerdict::runtime_error &&
+              summary.cases[2].process.exit_code == 7,
+          "runtime-error verdict");
+    check(summary.cases[3].verdict == cfx::CaseVerdict::time_limit_exceeded &&
+              summary.cases[3].process.timed_out,
+          "time-limit verdict");
+
+    for (const std::string number : {"02", "03", "04"}) {
+        fs::remove(problem.samples_path() / (number + ".in"));
+        fs::remove(problem.samples_path() / (number + ".out"));
+    }
+    cfx::TestOptions overridden;
+    overridden.timeout = std::chrono::seconds(2);
+    overridden.memory_limit_bytes = 512U * 1024U * 1024U;
+    const cfx::TestSummary override_summary = cfx::Judge(root).test(problem, overridden);
+    check(override_summary.limits.time_limit == std::chrono::seconds(2) &&
+              override_summary.limits.memory_limit_bytes == 512U * 1024U * 1024U,
+          "explicit test limits override problem metadata");
+
+    const cfx::Problem legacy("89", "B", root);
+    check(cfx::load_problem_limits(legacy).time_limit == std::chrono::seconds(5),
+          "missing metadata uses the legacy time fallback");
+    write(problem.directory() / "problem.json",
+          "{\"id\":\"89A\",\"timeLimitMs\":0,\"memoryLimitMb\":256}\n");
+    check_throws([&] { (void)cfx::load_problem_limits(problem); },
+                 "invalid problem limits are rejected");
+}
+
 void test_submission_preparation(const fs::path& root) {
-    const cfprobs::Problem problem("88", "A", root);
+    const cfx::Problem problem("88", "A", root);
     write(problem.preferred_solution_path(),
           "#include <iostream>\n"
           "#ifdef LOCAL\n"
@@ -194,7 +323,7 @@ void test_submission_preparation(const fs::path& root) {
     write(problem.samples_path() / "01.in", "7\n");
     write(problem.samples_path() / "01.out", "7\n");
 
-    const cfprobs::SubmissionArtifact artifact = cfprobs::prepare_submission(root, problem);
+    const cfx::SubmissionArtifact artifact = cfx::prepare_submission(root, problem);
     check(fs::is_regular_file(artifact.source), "submission artifact exists");
     check(artifact.source_text == read(artifact.source), "submission carries the pinned source");
     check(artifact.target == "88A", "submission target");
@@ -202,30 +331,41 @@ void test_submission_preparation(const fs::path& root) {
     check(artifact.page_url == "https://codeforces.com/problemset/submit",
           "submission uses the archive problemset page");
     check(artifact.source_hash.size() == 32, "submission hash");
-    check(artifact.source_hash == cfprobs::content_digest(artifact.source_text),
+    check(artifact.source_hash == cfx::content_digest(artifact.source_text),
           "submission hash matches pinned source");
     check(artifact.source.filename().string().find(artifact.source_hash.substr(0, 16)) !=
               std::string::npos,
           "submission artifact name contains hash");
 
-    const cfprobs::Problem untested("88", "B", root);
+    const cfx::Problem untested("88", "B", root);
     write(untested.preferred_solution_path(), "int main() {}\n");
-    check_throws([&] { (void)cfprobs::prepare_submission(root, untested); },
+    check_throws([&] { (void)cfx::prepare_submission(root, untested); },
                  "submission requires at least one complete test pair");
+
+    const cfx::Problem slow("88", "C", root);
+    write(slow.preferred_solution_path(), "#include <unistd.h>\nint main() { for (;;) ::pause(); }\n");
+    write(slow.samples_path() / "01.in", "\n");
+    write(slow.samples_path() / "01.out", "\n");
+    write(slow.directory() / "problem.json",
+          "{\"id\":\"88C\",\"timeLimitMs\":20,\"memoryLimitMb\":256}\n");
+    check_throws([&] { (void)cfx::prepare_submission(root, slow); },
+                 "submission rejects a metadata-driven time-limit failure");
 }
 
 void test_browser_submission_states() {
-    if (std::getenv("CFPROBS_TEST_BROWSER_LOG") == nullptr ||
-        std::getenv("CFPROBS_TEST_SUBMISSION_PAYLOAD") == nullptr) {
+    if (std::getenv("CFX_TEST_BROWSER_LOG") == nullptr ||
+        std::getenv("CFX_TEST_SUBMISSION_PAYLOAD") == nullptr) {
         return;
     }
 
-    cfprobs::BrowserBridgeOptions options;
-    options.request_timeout = std::chrono::milliseconds(500);
-    options.connect_timeout = std::chrono::milliseconds(1000);
-    options.wait_timeout = std::chrono::milliseconds(1500);
+    cfx::BrowserBridgeOptions options;
+    check(cfx::BrowserBridgeOptions{}.connect_timeout == std::chrono::seconds(30),
+          "default browser grace period covers a cold Chrome launch");
+    options.request_timeout = std::chrono::seconds(1);
+    options.connect_timeout = std::chrono::seconds(3);
+    options.wait_timeout = std::chrono::seconds(5);
     options.extension_id = "abcdefghijklmnopabcdefghijklmnop";
-    const cfprobs::BrowserSubmitRequest request{
+    const cfx::BrowserSubmitRequest request{
         "https://codeforces.com/problemset/submit",
         "99993C",
         "C",
@@ -233,19 +373,19 @@ void test_browser_submission_states() {
         "int main() {}\n",
     };
 
-    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "ready-only", 1);
+    ::setenv("CFX_TEST_CONNECTOR_MODE", "ready-only", 1);
     bool unavailable = false;
     try {
-        (void)cfprobs::submit_in_browser(request, options);
-    } catch (const cfprobs::BrowserConnectorUnavailable&) {
+        (void)cfx::submit_in_browser(request, options);
+    } catch (const cfx::BrowserConnectorUnavailable&) {
         unavailable = true;
     }
     check(unavailable, "ready without a source request is safe to fall back");
 
-    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "pre-submit-error", 1);
+    ::setenv("CFX_TEST_CONNECTOR_MODE", "pre-submit-error", 1);
     bool sign_in_required = false;
     try {
-        (void)cfprobs::submit_in_browser(request, options);
+        (void)cfx::submit_in_browser(request, options);
     } catch (const std::runtime_error& error) {
         const std::string message = error.what();
         sign_in_required = message.find("Codeforces submission failed") != std::string::npos &&
@@ -253,39 +393,94 @@ void test_browser_submission_states() {
     }
     check(sign_in_required, "known sign-in failure is reported before source is requested");
 
-    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "source-only", 1);
+    ::setenv("CFX_TEST_CONNECTOR_MODE", "source-only", 1);
     bool source_unknown = false;
     try {
-        (void)cfprobs::submit_in_browser(request, options);
-    } catch (const cfprobs::BrowserConnectorUnavailable&) {
+        (void)cfx::submit_in_browser(request, options);
+    } catch (const cfx::BrowserConnectorUnavailable&) {
         check(false, "served source must never trigger automatic fallback");
     } catch (const std::runtime_error& error) {
         source_unknown = std::string(error.what()).find("status is unknown") != std::string::npos;
     }
     check(source_unknown, "missing result after serving source has unknown status");
 
-    ::setenv("CFPROBS_TEST_CONNECTOR_MODE", "unknown-result", 1);
+    ::setenv("CFX_TEST_CONNECTOR_MODE", "unknown-result", 1);
     bool reported_unknown = false;
     try {
-        (void)cfprobs::submit_in_browser(request, options);
+        (void)cfx::submit_in_browser(request, options);
     } catch (const std::runtime_error& error) {
         const std::string message = error.what();
         reported_unknown = message.find("submission status is unknown") != std::string::npos &&
+                           message.find("submission 123456789") != std::string::npos &&
+                           message.find("/submission/123456789") != std::string::npos &&
                            message.find("Codeforces submission failed") == std::string::npos;
     }
-    ::unsetenv("CFPROBS_TEST_CONNECTOR_MODE");
     check(reported_unknown, "uncertain browser result is not reported as a safe rejection");
+
+    ::setenv("CFX_TEST_CONNECTOR_MODE", "tle-result", 1);
+    const cfx::BrowserSubmitReceipt tle = cfx::submit_in_browser(request, options);
+    check(tle.submission_id == "123456789" && tle.verdict == "TIME_LIMIT_EXCEEDED" &&
+              tle.verdict_text == "Time Limit Exceeded" && tle.passed_test_count == 2 &&
+              tle.time_consumed_millis == 1000 && tle.memory_consumed_bytes == 204800 &&
+              tle.judging_wait_millis == 2400,
+          "terminal judge failure is returned with complete judge details");
+    ::unsetenv("CFX_TEST_CONNECTOR_MODE");
 }
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 3 && std::string_view(argv[1]) == "--cfx-test-forward-signal") {
+        const cfx::ProcessResult result = cfx::run_process(
+            {argv[0], "--cfx-test-forward-worker", argv[2]});
+        return result.status;
+    }
+    if (argc == 3 && std::string_view(argv[1]) == "--cfx-test-forward-worker") {
+        write(argv[2], std::to_string(::getpid()) + "\n");
+        for (;;) {
+            ::pause();
+        }
+    }
+    if (argc == 3 && std::string_view(argv[1]) == "--cfx-test-descendant") {
+        const pid_t descendant = ::fork();
+        if (descendant < 0) {
+            return 1;
+        }
+        if (descendant == 0) {
+            ::usleep(200000);
+            write(std::string(argv[2]) + ".survived", "survived\n");
+            _exit(0);
+        }
+        write(argv[2], std::to_string(descendant) + "\n");
+        return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--cfx-test-exit") {
+        return 7;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--cfx-test-signal") {
+        std::raise(SIGSEGV);
+        return 1;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--cfx-test-memory") {
+        std::vector<char> memory(64U * 1024U * 1024U, 1);
+        while (memory.front() != 0) {
+            ::pause();
+        }
+        return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--cfx-test-output") {
+        const std::string block(4096, 'x');
+        while (::write(STDOUT_FILENO, block.data(), block.size()) > 0) {
+        }
+        return 0;
+    }
     try {
         TemporaryDirectory temporary;
         test_json_and_codeforces();
-        test_process_and_normalization(temporary.path());
+        test_process_and_normalization(temporary.path(), argv[0]);
         test_build_cache(temporary.path() / "build");
         test_companion_import(temporary.path() / "companion");
+        test_problem_limits_and_verdicts(temporary.path() / "verdicts");
         test_submission_preparation(temporary.path() / "submission");
         test_browser_submission_states();
         std::cout << "tool integration tests passed\n";

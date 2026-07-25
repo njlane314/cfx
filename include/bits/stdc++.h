@@ -1,7 +1,7 @@
 #pragma once
 
 // Local compatibility shim for Apple clang. GNU libstdc++ provides this header
-// on Codeforces; the probs builder finds this one through the local include path.
+// on Codeforces; the cfx builder finds this one through the local include path.
 
 #include <algorithm>
 #include <array>
