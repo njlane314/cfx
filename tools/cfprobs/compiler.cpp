@@ -77,6 +77,9 @@ std::vector<std::string> compile_flags(bool checked, bool local) {
         std::vector<std::string> additions = split_command_words(custom);
         flags.insert(flags.end(), additions.begin(), additions.end());
     }
+    if (!local) {
+        flags.push_back("-ULOCAL");
+    }
     return flags;
 }
 

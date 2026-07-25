@@ -22,6 +22,7 @@ else
 fi
 
 build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfprobs-tests.XXXXXX")
+build_dir=$(cd "$build_dir" && pwd -P)
 trap 'rm -rf "$build_dir"' EXIT
 
 bash "$script_dir/library/run.sh"
@@ -64,6 +65,74 @@ sandbox=$build_dir/workspace
 mkdir -p "$sandbox/templates" "$sandbox/include"
 cp "$repo_root/templates/solution.cpp" "$sandbox/templates/solution.cpp"
 cp -R "$repo_root/include/cp" "$sandbox/include/cp"
+
+browser_log=$build_dir/browser.log
+editor_log=$build_dir/editor.log
+submission_payload=$build_dir/submission.json
+start_output=$(
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+    CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+    CFPROBS_TEST_EDITOR_LOG="$editor_log" \
+    EDITOR="$script_dir/tooling/fixtures/editor.sh" \
+        "$repo_root/bin/probs" --root "$sandbox" 99993C
+)
+grep -q 'Fetched 99993C — Browser bridge problem' <<<"$start_output"
+grep -q 'Imported 2 samples' <<<"$start_output"
+grep -q 'Opened problems/cf/99993/C/solution.cpp' <<<"$start_output"
+bridge_problem_dir=$sandbox/problems/cf/99993/C
+test -f "$bridge_problem_dir/problem.json"
+test -f "$bridge_problem_dir/samples/01.in"
+test -f "$bridge_problem_dir/samples/02.out"
+grep -q "$bridge_problem_dir/solution.cpp" "$editor_log"
+grep -q '^fetch$' "$browser_log"
+
+cp "$script_dir/tooling/fixtures/sum.cpp" "$bridge_problem_dir/solution.cpp"
+cp "$script_dir/tooling/fixtures/10.in" "$bridge_problem_dir/samples/01.in"
+CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+CFPROBS_TEST_EDITOR_LOG="$editor_log" \
+EDITOR="$script_dir/tooling/fixtures/editor.sh" \
+    "$repo_root/bin/probs" --root "$sandbox" 99993C >/dev/null
+cmp "$script_dir/tooling/fixtures/sum.cpp" "$bridge_problem_dir/solution.cpp"
+cmp "$script_dir/tooling/fixtures/02.in" "$bridge_problem_dir/samples/01.in"
+
+submit_output=$(
+    cd "$bridge_problem_dir"
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+    CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+        "$repo_root/bin/probs" --root "$sandbox" submit
+)
+grep -q '2/2 tests passed' <<<"$submit_output"
+grep -q 'Checked build passed' <<<"$submit_output"
+grep -q 'Submitted 99993C as GNU C++20' <<<"$submit_output"
+grep -q 'https://codeforces.com/contest/99993/submission/123456789' <<<"$submit_output"
+grep -q 'Verdict: TESTING' <<<"$submit_output"
+grep -q '"target":"99993C"' "$submission_payload"
+grep -q '"language":"GNU C++20"' "$submission_payload"
+grep -q '"source":' "$submission_payload"
+grep -q '#include' "$submission_payload"
+grep -q '^submit$' "$browser_log"
+
+: >"$browser_log"
+cp "$script_dir/tooling/fixtures/wrong.cpp" "$bridge_problem_dir/solution.cpp"
+if (
+    cd "$bridge_problem_dir"
+    CFPROBS_BROWSER="$script_dir/tooling/fixtures/browser.sh" \
+    CFPROBS_TEST_BROWSER_LOG="$browser_log" \
+    CFPROBS_TEST_PROBLEM_PACKAGE="$script_dir/tooling/fixtures/browser-package.json" \
+    CFPROBS_TEST_SUBMISSION_PAYLOAD="$submission_payload" \
+        "$repo_root/bin/probs" --root "$sandbox" submit
+) >/dev/null 2>&1; then
+    echo "tooling test failed: submit accepted a failing solution" >&2
+    exit 1
+fi
+test ! -s "$browser_log"
 
 "$repo_root/bin/probs" --root "$sandbox" get 99991A |
     grep -q 'created:'

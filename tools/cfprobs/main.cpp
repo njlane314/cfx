@@ -1,8 +1,10 @@
+#include "browser.hpp"
 #include "bundle.hpp"
 #include "codeforces.hpp"
 #include "companion.hpp"
 #include "judge.hpp"
 #include "problem.hpp"
+#include "process.hpp"
 #include "submission.hpp"
 #include "workspace.hpp"
 
@@ -25,20 +27,23 @@ namespace {
 namespace fs = std::filesystem;
 using cfprobs::Problem;
 
-const char* kHelp = R"(usage: probs <command> [options]
+const char* kHelp = R"(usage:
+  probs PROBLEM
+  probs submit
 
 A small C++20 Codeforces workbench.
 
-workflow:
-  get PROBLEM|CONTEST   create one problem or an entire contest
-  test [PROBLEM]        build and judge saved samples and cases
-  bundle [PROBLEM]      write submission-ready source
-  stress [PROBLEM]      compare the solution with a brute force program
-  cc                    receive samples from Competitive Companion
-  submit [PROBLEM]      validate and prepare a browser handoff
+daily:
+  probs 71A             fetch samples and open solution.cpp
+  probs submit          test, checked-build, and submit through the browser
 
-other:
+advanced:
+  test [PROBLEM]        build and judge saved samples and cases
+  stress [PROBLEM]      compare the solution with a brute force program
+  bundle [PROBLEM]      write submission-ready source
   fail [PROBLEM]        promote the current stress failure
+  cc                    receive samples from Competitive Companion
+  get PROBLEM|CONTEST   create a workspace without opening an editor
   help [COMMAND]        show general or command help
 
 Problems are canonically 71A. A.71, A 71 (as two arguments), Codeforces URLs, legacy
@@ -73,11 +78,11 @@ and --verbose.
 Listen for Competitive Companion JSON and store fetched samples separately
 from handwritten cases. Existing differing pairs require --force.
 )"},
-    {"submit", R"(usage: probs submit [--rebuild] [--yes] [--no-open] [PROBLEM]
+    {"submit", R"(usage: probs submit [--rebuild] [PROBLEM]
 
-Run saved tests, create the bundle, checked-compile it, confirm the target,
-copy the source when a clipboard helper exists, and open Codeforces. The final
-authenticated submission remains in the browser.
+Run saved tests, create and checked-compile the final bundle, then submit it
+through the installed browser connector and the browser's authenticated
+Codeforces session. No password or cookie is read or stored by probs.
 )"},
     {"fail", R"(usage: probs fail [PROBLEM]
 
@@ -173,6 +178,41 @@ void show_command_help(const std::string& command) {
     std::cout << help->second;
 }
 
+std::string display_path(const fs::path& path, const fs::path& root) {
+    std::error_code error;
+    const fs::path relative = fs::relative(path, root, error);
+    return error || relative.empty() ? path.string() : relative.string();
+}
+
+void open_editor(const fs::path& solution) {
+    std::vector<std::string> command;
+    if (const char* editor = std::getenv("EDITOR"); editor != nullptr && *editor != '\0') {
+        command = cfprobs::split_command_words(editor);
+    } else if (const char* visual = std::getenv("VISUAL"); visual != nullptr && *visual != '\0') {
+        command = cfprobs::split_command_words(visual);
+    } else {
+#ifdef __APPLE__
+        command = {"open"};
+#else
+        command = {"xdg-open"};
+#endif
+    }
+    if (command.empty()) {
+        throw std::runtime_error("EDITOR names no command");
+    }
+    command.push_back(solution.filename().string());
+    const cfprobs::ProcessResult result = cfprobs::run_process(command, cfprobs::ProcessOptions{
+                                                                            std::nullopt,
+                                                                            std::nullopt,
+                                                                            std::nullopt,
+                                                                            std::nullopt,
+                                                                            solution.parent_path(),
+                                                                        });
+    if (result.status != 0) {
+        throw std::runtime_error("editor exited with status " + std::to_string(result.status));
+    }
+}
+
 int command_get(Arguments arguments, const fs::path& root) {
     std::vector<std::string> positional;
     while (!arguments.empty()) {
@@ -205,6 +245,35 @@ int command_get(Arguments arguments, const fs::path& root) {
     const Problem problem = resolve_problem(positional, root);
     const cfprobs::WorkspaceResult result = workspace.create(problem);
     std::cout << (result.solution_created ? "created: " : "exists: ") << result.solution << '\n';
+    return 0;
+}
+
+int command_problem(const std::vector<std::string>& values, const fs::path& root) {
+    const Problem problem = resolve_problem(values, root);
+    const cfprobs::WorkspaceResult workspace = cfprobs::Workspace(root).create(problem);
+
+    std::string payload;
+    try {
+        payload = cfprobs::fetch_problem_in_browser(cfprobs::problem_url(problem));
+    } catch (const std::exception& error) {
+        throw std::runtime_error(std::string(error.what()) + "; use probs cc --once as a fallback");
+    }
+    const cfprobs::CompanionPackage package = cfprobs::parse_companion_package(payload, root);
+    if (package.problem.id() != problem.id()) {
+        throw std::runtime_error("browser returned " + package.problem.id() + " while fetching " +
+                                 problem.id());
+    }
+    const cfprobs::ImportResult imported = cfprobs::import_companion_package(package, root, true);
+
+    std::cout << "Fetched " << problem.id();
+    if (!package.name.empty()) {
+        std::cout << " — " << package.name;
+    }
+    std::cout << '\n'
+              << "Imported " << imported.sample_count << ' '
+              << (imported.sample_count == 1 ? "sample" : "samples") << '\n'
+              << "Opened " << display_path(workspace.solution, root) << '\n';
+    open_editor(workspace.solution);
     return 0;
 }
 
@@ -376,8 +445,6 @@ int command_cc(Arguments arguments, const fs::path& root) {
 
 int command_submit(Arguments arguments, const fs::path& root) {
     bool rebuild = false;
-    bool confirmed = false;
-    bool open_browser = true;
     std::vector<std::string> positional;
     while (!arguments.empty()) {
         const std::string argument = arguments.take();
@@ -387,10 +454,6 @@ int command_submit(Arguments arguments, const fs::path& root) {
         }
         if (argument == "--rebuild") {
             rebuild = true;
-        } else if (argument == "--yes" || argument == "-y") {
-            confirmed = true;
-        } else if (argument == "--no-open") {
-            open_browser = false;
         } else if (argument.starts_with("-")) {
             throw std::runtime_error("submit: unknown option " + argument);
         } else {
@@ -401,19 +464,20 @@ int command_submit(Arguments arguments, const fs::path& root) {
     const Problem problem = resolve_problem(positional, root);
     const cfprobs::SubmissionArtifact artifact =
         cfprobs::prepare_submission(root, problem, rebuild);
-    std::cout << "\ntarget:   " << artifact.target << "\nlanguage: " << artifact.language
-              << "\nhash:     " << artifact.source_hash << "\nsource:   " << artifact.source
-              << '\n';
-    if (!confirmed) {
-        std::cout << "prepare browser handoff? [y/N] " << std::flush;
-        std::string answer;
-        if (!std::getline(std::cin, answer) ||
-            (answer != "y" && answer != "Y" && answer != "yes" && answer != "YES")) {
-            std::cout << "cancelled\n";
-            return 1;
-        }
+    std::cout << "Checked build passed\n";
+    const cfprobs::BrowserSubmitReceipt receipt =
+        cfprobs::submit_in_browser(cfprobs::BrowserSubmitRequest{
+            artifact.page_url,
+            artifact.target,
+            problem.index(),
+            artifact.language,
+            artifact.source_text,
+        });
+    std::cout << "Submitted " << artifact.target << " as " << artifact.language << '\n'
+              << receipt.submission_url << '\n';
+    if (!receipt.verdict.empty() && receipt.verdict != "submitted") {
+        std::cout << "Verdict: " << receipt.verdict << '\n';
     }
-    cfprobs::BrowserAssistedTransport().handoff(artifact, open_browser);
     return 0;
 }
 
@@ -499,7 +563,11 @@ int main(int argc, char** argv) {
         if (command == "submit") {
             return command_submit(std::move(arguments), root);
         }
-        throw std::runtime_error("unknown command: " + command);
+        std::vector<std::string> problem{std::move(command)};
+        while (!arguments.empty()) {
+            problem.push_back(arguments.take());
+        }
+        return command_problem(problem, root);
     } catch (const std::exception& error) {
         std::cerr << "probs: " << error.what() << '\n';
         return 2;

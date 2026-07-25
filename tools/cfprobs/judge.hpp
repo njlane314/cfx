@@ -16,6 +16,7 @@ struct TestOptions {
     bool checked = false;
     bool rebuild = false;
     std::chrono::milliseconds timeout{5000};
+    bool concise = false;
 };
 
 struct TestSummary {

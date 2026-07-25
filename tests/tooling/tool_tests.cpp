@@ -1,6 +1,7 @@
 #include "cfprobs/codeforces.hpp"
 #include "cfprobs/companion.hpp"
 #include "cfprobs/compiler.hpp"
+#include "cfprobs/hash.hpp"
 #include "cfprobs/json.hpp"
 #include "cfprobs/judge.hpp"
 #include "cfprobs/process.hpp"
@@ -184,10 +185,17 @@ void test_submission_preparation(const fs::path& root) {
 
     const cfprobs::SubmissionArtifact artifact = cfprobs::prepare_submission(root, problem);
     check(fs::is_regular_file(artifact.source), "submission artifact exists");
+    check(artifact.source_text == read(artifact.source), "submission carries the pinned source");
     check(artifact.target == "88A", "submission target");
+    check(artifact.language == "GNU C++20", "submission language");
     check(artifact.page_url == "https://codeforces.com/contest/88/submit",
           "submission uses the canonical contest page");
     check(artifact.source_hash.size() == 32, "submission hash");
+    check(artifact.source_hash == cfprobs::content_digest(artifact.source_text),
+          "submission hash matches pinned source");
+    check(artifact.source.filename().string().find(artifact.source_hash.substr(0, 16)) !=
+              std::string::npos,
+          "submission artifact name contains hash");
 
     const cfprobs::Problem untested("88", "B", root);
     write(untested.preferred_solution_path(), "int main() {}\n");

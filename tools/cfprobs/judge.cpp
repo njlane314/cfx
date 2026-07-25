@@ -208,10 +208,12 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
     TestSummary summary;
     summary.build =
         builder_.build_problem(problem, BuildOptions{options.checked, options.rebuild, true});
-    std::cout << (summary.build.compiled ? "built: " : "cached: ") << problem.id() << " ["
-              << summary.build.digest.substr(0, 12) << "]\n"
-              << "size: source " << format_bytes(summary.build.source_size) << ", binary "
-              << format_bytes(summary.build.binary_size) << '\n';
+    if (!options.concise) {
+        std::cout << (summary.build.compiled ? "built: " : "cached: ") << problem.id() << " ["
+                  << summary.build.digest.substr(0, 12) << "]\n"
+                  << "size: source " << format_bytes(summary.build.source_size) << ", binary "
+                  << format_bytes(summary.build.binary_size) << '\n';
+    }
 
     const std::vector<Case> cases = cases_for(problem);
     if (cases.empty()) {
@@ -229,9 +231,12 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         const fs::path actual_path = run_directory / ("actual-" + std::to_string(number) + ".txt");
         const fs::path error_path = run_directory / ("error-" + std::to_string(number) + ".txt");
 
-        std::cout << "==> " << test_case.name << '\n';
+        if (!options.concise) {
+            std::cout << "==> " << test_case.name << '\n';
+        }
         if (!test_case.expected) {
-            std::cout << "missing expected output: " << test_case.input.stem().string() << ".out\n";
+            std::cout << (options.concise ? test_case.name + ": " : "")
+                      << "missing expected output: " << test_case.input.stem().string() << ".out\n";
             continue;
         }
         const ProcessResult result =
@@ -244,7 +249,8 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
                                                          });
         summary.elapsed += result.elapsed;
         if (result.status != 0) {
-            std::cout << (result.timed_out ? "TLE" : "runtime failure") << " (exit "
+            std::cout << (options.concise ? test_case.name + ": " : "")
+                      << (result.timed_out ? "TLE" : "runtime failure") << " (exit "
                       << result.status << ", " << format_duration(result.elapsed) << ")\n";
             show_stream_if_nonempty("stderr", error_path, std::cerr);
             continue;
@@ -254,18 +260,25 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         const std::string actual = read_file(actual_path);
         const std::string expected = read_file(*test_case.expected);
         if (normalize_output(actual) == normalize_output(expected)) {
-            std::cout << "OK (" << format_duration(result.elapsed) << ")\n";
+            if (!options.concise) {
+                std::cout << "OK (" << format_duration(result.elapsed) << ")\n";
+            }
             ++summary.passed;
         } else {
-            std::cout << "WA (" << format_duration(result.elapsed) << ")\n"
+            std::cout << (options.concise ? test_case.name + ": " : "") << "WA ("
+                      << format_duration(result.elapsed) << ")\n"
                       << "expected:\n"
                       << preview(expected)
                       << (expected.empty() || expected.back() == '\n' ? "" : "\n") << "actual:\n"
                       << preview(actual) << (actual.empty() || actual.back() == '\n' ? "" : "\n");
         }
     }
-    std::cout << summary.passed << '/' << summary.total << " passed, time "
-              << format_duration(summary.elapsed) << '\n';
+    if (options.concise) {
+        std::cout << summary.passed << '/' << summary.total << " tests passed\n";
+    } else {
+        std::cout << summary.passed << '/' << summary.total << " passed, time "
+                  << format_duration(summary.elapsed) << '\n';
+    }
     return summary;
 }
 

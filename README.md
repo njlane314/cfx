@@ -26,46 +26,40 @@ the C++ tool on first use and whenever its sources or headers change.
 
 ## Daily workflow
 
-`71A` is the canonical spelling for a Codeforces problem:
+Set up the browser connector once:
+
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Choose **Load unpacked** and select this repository's `browser/` directory.
+
+Other Chromium browsers provide the same controls on their extensions page.
+Sign in to Codeforces in that browser; credentials and session cookies remain
+there and are never stored by this repository.
+If that is not your default browser, set `CFPROBS_BROWSER` to an opener
+command, for example `export CFPROBS_BROWSER='open -a "Google Chrome"'` on
+macOS.
+
+The daily workflow is two commands:
 
 ```sh
-probs get 71A
-cd problems/cf/71/A
+probs 71A
+# $EDITOR opens problems/cf/71/A/solution.cpp
 
-$EDITOR solution.cpp
-probs test
-probs test --checked
-probs bundle > submission.cpp
-probs stress  # once stress/gen.cpp and stress/brute.cpp exist
 probs submit
 ```
 
-`get` also accepts a contest number such as `probs get 2227`. Run `probs cc`
-in another terminal before sending a problem from Competitive Companion; its
-sample tests are kept in `samples/`, separate from handwritten regression
-cases in `cases/`.
+The first command fetches the problem metadata and samples, creates its
+workspace, and opens the solution. Fetched tests live in `samples/`; add
+handwritten regression tests to `cases/`, which fetching never replaces.
+Inside the workspace, `probs submit` infers the problem, runs every test,
+checked-builds and pins the exact source, submits through the browser session,
+and reports the submission URL plus any immediate verdict. Invoking `submit`
+is the authorization; there is no second confirmation prompt.
 
-Commands infer the problem inside `problems/cf/<contest>/<index>/`, or accept
-it explicitly:
-
-```sh
-probs test 71A
-probs bundle A.71
-probs test A 71
-```
-
-Codeforces URLs and the old `A.71` spelling remain accepted. Existing flat
-workspaces in `solutions/A.71.cpp` and `tests/A.71/` continue to work, so
-problems can move to the new layout only when they are touched.
-
-During the transition, `probs new` aliases `get`, `probs run` aliases `test`,
-and `probs rerun` uses the same cached `test` engine. The former global wrapper
-commands are not installed.
-
-Builds are content-addressed under `.build/`; `test --rebuild` bypasses a
-cached build. `submit` prepares and validates a checked bundle, then hands the
-authenticated submission step to the browser. The repository never stores a
-Codeforces password or session cookie.
+`71A` is canonical, while `A.71`, `A 71`, Codeforces URLs, and existing
+workspaces remain accepted. Lower-level commands such as `test`, `bundle`, and
+`stress` are advanced fallbacks. `probs cc` remains available when importing
+with Competitive Companion is preferable.
 
 Use `probs help`, `probs --help`, or `probs COMMAND --help` for command
 details.

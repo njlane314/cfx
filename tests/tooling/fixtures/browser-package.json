@@ -1,0 +1,16 @@
+{
+  "name": "Browser bridge problem",
+  "url": "https://codeforces.com/contest/99993/problem/C",
+  "timeLimit": 1500,
+  "memoryLimit": 256,
+  "tests": [
+    {
+      "input": "2 3\n",
+      "output": "5\n"
+    },
+    {
+      "input": "10 20\n",
+      "output": "30\n"
+    }
+  ]
+}

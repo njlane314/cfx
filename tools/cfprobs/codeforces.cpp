@@ -65,6 +65,10 @@ std::vector<std::string> fetch_contest_indexes(const std::string& contest_id) {
     return parse_contest_indexes(response.output);
 }
 
+std::string problem_url(const Problem& problem) {
+    return "https://codeforces.com/contest/" + problem.contest_id() + "/problem/" + problem.index();
+}
+
 std::string submission_url(const Problem& problem) {
     return "https://codeforces.com/contest/" + problem.contest_id() + "/submit";
 }

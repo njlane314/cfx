@@ -77,7 +77,7 @@ int integer_field(const Json& object, std::string_view name) {
     if (!value->is_number() || value->number() < 0.0 ||
         value->number() > static_cast<double>(std::numeric_limits<int>::max()) ||
         std::trunc(value->number()) != value->number()) {
-        throw std::runtime_error("Competitive Companion field '" + std::string(name) +
+        throw std::runtime_error("problem package field '" + std::string(name) +
                                  "' must be a non-negative integer");
     }
     return static_cast<int>(value->number());
@@ -256,7 +256,7 @@ CompanionPackage parse_companion_package(std::string_view payload, const fs::pat
     const Json document = parse_json(payload);
     const std::string url = string_field(document, "url");
     if (url.empty()) {
-        throw std::runtime_error("Competitive Companion package has no URL");
+        throw std::runtime_error("problem package has no URL");
     }
     CompanionPackage package{
         Problem::parse(url, root),
@@ -268,7 +268,7 @@ CompanionPackage parse_companion_package(std::string_view payload, const fs::pat
     };
     const Json* tests = document.find("tests");
     if (tests == nullptr || !tests->is_array()) {
-        throw std::runtime_error("Competitive Companion package has no tests");
+        throw std::runtime_error("problem package has no tests");
     }
     for (const Json& test : tests->array()) {
         package.samples.push_back(Sample{
@@ -277,7 +277,7 @@ CompanionPackage parse_companion_package(std::string_view payload, const fs::pat
         });
     }
     if (package.samples.empty()) {
-        throw std::runtime_error("Competitive Companion package has no tests");
+        throw std::runtime_error("problem package has no tests");
     }
     return package;
 }

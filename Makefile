@@ -13,7 +13,7 @@ help:
 	@echo 'Development:'
 	@echo '  make build        build the C++ command-line tool'
 	@echo '  make test         run library and tooling tests'
-	@echo '  make lint         check Bash syntax and CLI startup'
+	@echo '  make lint         check scripts and CLI startup'
 	@echo '  make verify       run all checks'
 	@echo
 	@echo 'Installation:'
@@ -28,6 +28,10 @@ test: build
 
 lint:
 	bash -n $(PROBS) $(TEST_RUNNER)
+	@if command -v node >/dev/null 2>&1; then \
+		node --check browser/connector.js; \
+		node -e 'JSON.parse(require("node:fs").readFileSync("browser/manifest.json", "utf8"))'; \
+	fi
 	$(PROBS) --help >/dev/null
 
 verify: test lint
