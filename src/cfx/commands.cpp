@@ -71,9 +71,10 @@ template. A numeric contest fetches indexes from the official Codeforces API.
 
 Bundle, compile, and judge samples followed by handwritten cases. The problem
 is inferred when the command runs inside its archive directory. Fetched
-Codeforces time and memory limits are used by default. --remote-check runs the
-inputs without comparing their output. Options: --checked, --rebuild,
---remote-check, --time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
+Codeforces time and memory limits are used by default. --remote-check runs
+inputs under their limits without comparing saved answers; output is reported
+unchecked. Options: --checked, --rebuild, --remote-check, --time-limit SECONDS,
+--memory-limit MIB, and --output-limit MIB.
 )"},
     {"bundle", R"(usage: cfx bundle [--output FILE] [PROBLEM]
 
@@ -96,12 +97,13 @@ from handwritten cases. Existing differing pairs require --force.
 
 Run saved tests, create and checked-compile the final bundle, then submit it
 through the installed browser connector and the browser's authenticated
-Codeforces session. --remote-check enforces execution limits but leaves output
-validation to Codeforces. If Chrome has no connector, fall back to copying the
-exact tested source and opening the submission page. --manual selects that
-fallback directly. With no PROBLEM, use the current directory or the most
-recent problem opened by `cfx PROBLEM`; conflicting targets require an explicit
-ID. No password or cookie is read or stored by cfx.
+Codeforces session. --remote-check skips saved-answer comparison only; build or
+execution failures still stop submission, and Codeforces decides correctness.
+If Chrome has no connector, fall back to copying the exact tested source and
+opening the submission page. --manual selects that fallback directly. With no
+PROBLEM, use the current directory or the most recent problem opened by
+`cfx PROBLEM`; conflicting targets require an explicit ID. No password or
+cookie is read or stored by cfx.
 Exit status is 0 only for `OK` on `TESTS`, 1 for a final non-Accepted verdict,
 and 2 while judging is pending or submission requires manual completion.
 )"},

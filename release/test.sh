@@ -20,7 +20,9 @@ for path in bin/cfx libexec/cfx share/cfx/templates/solution.cpp \
     [[ -e $work/$package/$path ]] || { echo "release test: package lacks $path" >&2; exit 1; }
 done
 grep -q '^\.TH CFX 1 ' "$work/$package/share/man/man1/cfx.1"
+grep -q '\\-\\-remote-check' "$work/$package/share/man/man1/cfx.1"
 "$work/$package/bin/cfx" --help >/dev/null
+"$work/$package/bin/cfx" help submit | grep -q -- '--remote-check'
 
 workspace=$work/workspace
 export CFX_STATE_ROOT=$work/state

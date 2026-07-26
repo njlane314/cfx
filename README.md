@@ -76,7 +76,7 @@ cfx sync 71
 git push
 ```
 
-For a construction problem whose output is checked by Codeforces:
+For a problem with multiple valid outputs:
 
 ```sh
 cfx test --remote-check 2250B
@@ -92,9 +92,9 @@ Accepted. With `cfx.record=commit`, it is committed immediately. `PRETESTS` and
 known pending submissions preserve their exact source and receipt in external
 state.
 
-`--remote-check` still enforces compilation and execution limits, but shows an
-unchecked output preview instead of comparing it with the sample answer.
-Codeforces remains the checker.
+`--remote-check` is explicit per command. Builds and runs must succeed within
+their limits; only comparison with the sample answer is skipped. Local success
+does not establish correctness. Codeforces decides it.
 
 After final judging, `cfx sync [CONTEST|PROBLEM]` reconciles the saved submission
 IDs. A numeric contest is the ID in `/contest/<id>/`, not the displayed round
