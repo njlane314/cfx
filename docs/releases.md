@@ -7,6 +7,7 @@ x86_64. It also rebuilds the polished demonstration as
 ```text
 bin/cfx
 libexec/cfx
+share/man/man1/cfx.1
 share/cfx/include/
 share/cfx/templates/
 share/cfx/browser/extension-id

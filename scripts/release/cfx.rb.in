@@ -11,6 +11,7 @@ class Cfx < Formula
   def install
     system "make", "build", "CXX=#{ENV.cxx}", "CFX_STD=c++20"
     libexec.install ".build/tools/cfx"
+    man1.install "man/cfx.1"
     pkgshare.install "include", "templates"
     (pkgshare/"browser").install "browser/extension-id"
     (bin/"cfx").write_env_script libexec/"cfx",

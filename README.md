@@ -39,7 +39,7 @@ From source today:
 make install
 ```
 
-This installs `cfx` in `~/.local/bin`.
+This installs `cfx` in `~/.local/bin` and its manual as `man cfx`.
 
 ## CHROME SETUP
 

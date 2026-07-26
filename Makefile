@@ -1,8 +1,11 @@
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/share/man
+MAN1DIR ?= $(MANDIR)/man1
 
 CFX := ./bin/cfx
 CFX_PATH := $(abspath $(CFX))
+MANPAGE := man/cfx.1
 TEST_RUNNER := tests/run.sh
 TEST_SCRIPTS := $(shell find tests -type f -name '*.sh' -print)
 RELEASE_SCRIPTS := $(shell find scripts/release -type f -name '*.sh' -print)
@@ -88,6 +91,7 @@ lint:
 		for script in browser/*.js; do node --check "$$script"; done; \
 		node -e 'JSON.parse(require("node:fs").readFileSync("browser/manifest.json", "utf8"))'; \
 	fi
+	@if command -v mandoc >/dev/null 2>&1; then mandoc -T lint $(MANPAGE); fi
 	$(CFX) --help >/dev/null
 
 release-check: build
@@ -100,7 +104,8 @@ browser-package:
 
 install:
 	@test -x "$(CFX_PATH)" || { echo 'missing executable: $(CFX_PATH)' >&2; exit 1; }
-	mkdir -p "$(DESTDIR)$(BINDIR)"
+	@test -f "$(MANPAGE)" || { echo 'missing manual: $(MANPAGE)' >&2; exit 1; }
+	mkdir -p "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MAN1DIR)"
 	@dst="$(DESTDIR)$(BINDIR)/cfx"; \
 	target=$$(readlink "$$dst" 2>/dev/null || true); \
 	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && [ "$$target" != "$(CFX_PATH)" ]; then \
@@ -108,7 +113,8 @@ install:
 		exit 1; \
 	fi; \
 	ln -sfn "$(CFX_PATH)" "$$dst"
-	@echo 'installed $(BINDIR)/cfx'
+	install -m 0644 "$(MANPAGE)" "$(DESTDIR)$(MAN1DIR)/cfx.1"
+	@echo 'installed $(BINDIR)/cfx and $(MAN1DIR)/cfx.1'
 
 clean:
 	rm -rf .build
