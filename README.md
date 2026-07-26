@@ -5,75 +5,38 @@
 
 `cfx` is the small, auditable, two-command Codeforces workflow.
 
-It fetches a problem into an ordinary Git-backed solution archive, runs every local test,
-submits the exact tested source through your signed-in browser, and reports the
-Codeforces verdict. There is no cfx account, hosted service, or credential
-store.
-
-## USAGE
-
-```sh
-cd solutions
-cfx 71A
-# edit solution.cpp
-cfx submit
-```
-
-`cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
-`solution.cpp` in your editor, and remembers the problem. `cfx submit` runs
-every saved sample and case, checked-compiles the exact bundled source, submits
-it through Chrome, and waits for the verdict. Tooling and runtime state remain
-outside the archive; only solutions, metadata, authored cases, and stress tools
-belong there.
-
-## SOLUTION ARCHIVE
-
-Start with an ordinary Git repository:
-
-```sh
-git init -b main solutions
-cd solutions
-git config cfx.record commit
-cfx 71A
-```
-
-`cfx` creates the archive as needed:
-
-```text
-solutions/
-├── .cfx/solution.cpp               optional starter template
-├── include/                        optional personal headers
-└── codeforces/<contest>/<index>/
-    ├── solution.cpp
-    ├── problem.json
-    ├── cases/                      optional authored tests
-    ├── stress/                     optional generator and brute force
-    └── submissions/                exact accepted bundle, when needed
-```
-
-Only durable, authored files belong here. Fetched samples, builds, run output,
-failures, prepared submissions, and receipts remain external. Empty optional
-directories need no placeholder files.
-
-A tracked `.cfx/solution.cpp` overrides the packaged starter. With
-`cfx.record=commit`, an Accepted verdict creates one local commit containing the
-submission ID, URL, resource use, and source digest. `cfx` never pushes.
+It fetches a problem into an ordinary Git-backed solution archive, runs every
+local test, submits the exact tested source through your signed-in browser, and
+reports the Codeforces verdict. There is no cfx account, hosted service, or
+credential store.
 
 ## INSTALL
 
 Requires Bash, a C++20 compiler, `make`, `curl`, and Chrome.
 
-From source:
+From the source checkout:
 
 ```sh
 make install
-```
-
-This installs `cfx` in `~/.local/bin`. Read the manual with:
-
-```sh
+command -v cfx
 man cfx
 ```
+
+This installs `cfx` in `~/.local/bin` and its manual in
+`~/.local/share/man/man1`. Ensure `~/.local/bin` is on `PATH`.
+
+## SETUP
+
+Create a solution archive:
+
+```sh
+git init -b main solutions
+cd solutions
+git config cfx.record commit
+```
+
+The archive name, path, and remote are arbitrary. The Git setting enables one
+local commit per confirmed Accepted verdict.
 
 ## CHROME SETUP
 
@@ -98,6 +61,44 @@ a short-lived random token. See
 
 Without the connector, `cfx submit` copies the tested bundle and opens the
 submission page. Use `cfx submit --manual` to request that path directly.
+
+## USE
+
+From the solution archive:
+
+```sh
+cfx 71A
+# edit solution.cpp
+cfx submit
+git push
+```
+
+`cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
+`solution.cpp`, and remembers the problem. `cfx submit` tests and
+checked-compiles the exact bundled source, submits it through Chrome, and waits
+for the verdict. The final command requires a configured Git remote; `cfx`
+never pushes.
+
+## FILES
+
+`cfx` creates the archive as needed:
+
+```text
+solutions/
+├── .cfx/solution.cpp               optional starter template
+├── include/                        optional personal headers
+└── codeforces/<contest>/<index>/
+    ├── solution.cpp
+    ├── problem.json
+    ├── cases/                      optional authored tests
+    ├── stress/                     optional generator and brute force
+    └── submissions/                exact accepted bundle, when needed
+```
+
+Only durable, authored files belong here. Fetched samples, builds, run output,
+failures, prepared submissions, and receipts remain external. Empty optional
+directories need no placeholder files. A tracked `.cfx/solution.cpp` overrides
+the packaged starter.
 
 ## LIBRARY
 
