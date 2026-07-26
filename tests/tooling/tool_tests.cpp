@@ -513,6 +513,27 @@ void test_problem_limits_and_verdicts(const fs::path& root) {
               summary.cases[3].process.timed_out,
           "time-limit verdict");
 
+    cfx::TestOptions remote;
+    remote.remote_check = true;
+    remote.timeout = std::chrono::milliseconds(100);
+    const cfx::TestSummary remote_summary = cfx::Judge(root).test(problem, remote);
+    check(remote_summary.total == 4 && remote_summary.passed == 2,
+          "remote checking accepts completed outputs only");
+    check(remote_summary.cases[0].verdict == cfx::CaseVerdict::output_unchecked &&
+              remote_summary.cases[1].verdict == cfx::CaseVerdict::output_unchecked,
+          "remote checking does not claim output acceptance");
+    check(remote_summary.cases[2].verdict == cfx::CaseVerdict::runtime_error &&
+              remote_summary.cases[3].verdict == cfx::CaseVerdict::time_limit_exceeded,
+          "remote checking preserves execution failures");
+
+    const cfx::Problem input_only("89", "C", root);
+    write(input_only.solution_path(), "int main() {}\n");
+    write(input_only.samples_path() / "01.in", "\n");
+    const cfx::TestSummary input_only_summary = cfx::Judge(root).test(input_only, remote);
+    check(input_only_summary.success() && input_only_summary.total == 1 &&
+              input_only_summary.cases[0].verdict == cfx::CaseVerdict::output_unchecked,
+          "remote checking needs input but no expected output");
+
     for (const std::string number : {"02", "03", "04"}) {
         fs::remove(problem.samples_path() / (number + ".in"));
         fs::remove(problem.samples_path() / (number + ".out"));
@@ -566,10 +587,22 @@ void test_submission_preparation(const fs::path& root) {
               artifact.source_hash.substr(0, 16)) != std::string::npos,
           "submission artifact directory contains hash");
 
+    write(problem.samples_path() / "01.out", "8\n");
+    check_throws([&] { (void)cfx::prepare_submission(root, problem); },
+                 "ordinary submission rejects a textual mismatch");
+    cfx::SubmissionOptions remote;
+    remote.remote_check = true;
+    check(fs::is_regular_file(cfx::prepare_submission(root, problem, remote).source),
+          "remote-checked submission accepts completed output");
+    write(problem.samples_path() / "01.out", "7\n");
+
     const cfx::Problem untested("88", "B", root);
     write(untested.solution_path(), "int main() {}\n");
     check_throws([&] { (void)cfx::prepare_submission(root, untested); },
                  "submission requires at least one complete test pair");
+    write(untested.samples_path() / "01.in", "\n");
+    check(fs::is_regular_file(cfx::prepare_submission(root, untested, remote).source),
+          "remote-checked submission accepts an input-only test");
 
     const cfx::Problem slow("88", "C", root);
     write(slow.solution_path(), "#include <unistd.h>\nint main() { for (;;) ::pause(); }\n");
@@ -579,6 +612,8 @@ void test_submission_preparation(const fs::path& root) {
           "{\"id\":\"88C\",\"timeLimitMs\":20,\"memoryLimitMb\":256}\n");
     check_throws([&] { (void)cfx::prepare_submission(root, slow); },
                  "submission rejects a metadata-driven time-limit failure");
+    check_throws([&] { (void)cfx::prepare_submission(root, slow, remote); },
+                 "remote-checked submission rejects a time-limit failure");
 }
 
 void test_browser_page_validation() {

@@ -15,6 +15,7 @@ cfx \- the small, auditable, two-command Codeforces workflow
 .B submit
 .RB [ \-\-manual ]
 .RB [ \-\-rebuild ]
+.RB [ \-\-remote-check ]
 .RI [ problem ]
 .br
 .B cfx
@@ -105,6 +106,10 @@ Bundle and compile the solution, then run fetched samples followed by
 handwritten cases.
 Report OK, WA, RE, TLE, MLE, or OLE together with CPU time, wall time, and
 peak memory.
+With
+.BR \-\-remote-check ,
+report the actual output as unchecked instead of comparing it with the saved
+answer.
 Builds are cached by source, compiler version, and compiler flags.
 .TP
 .BR stress " [" problem "]"
@@ -140,6 +145,9 @@ Fetched samples remain separate from handwritten cases.
 .BR submit " [" problem "]"
 Run every saved test, build the submission profile, checked-compile the exact
 bundled source, and submit it through Chrome.
+With
+.BR \-\-remote-check ,
+execution failures still stop submission, but Codeforces validates the output.
 Wait for judging and report the verdict, tests passed, execution time, and
 memory consumption.
 Only an
@@ -182,6 +190,10 @@ UndefinedBehaviorSanitizer.
 .TP
 .B \-\-rebuild
 Ignore an existing cached binary.
+.TP
+.B \-\-remote-check
+Run saved inputs under their limits without comparing output to the saved
+answers. Print an output preview and leave validation to Codeforces.
 .TP
 .BI "\-\-time-limit " seconds
 Override the fetched time limit.

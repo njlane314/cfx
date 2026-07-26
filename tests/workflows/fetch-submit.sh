@@ -220,6 +220,33 @@ if (
 fi
 test ! -s "$browser_log"
 
+remote_test_output=$(
+    cd "$problem_dir"
+    "$repo_root/cfx" --root "$sandbox" test --remote-check
+)
+grep -q 'output unchecked' <<<"$remote_test_output"
+grep -q '^actual:$' <<<"$remote_test_output"
+grep -q '2/2 ran; output unchecked' <<<"$remote_test_output"
+
+if remote_submit_output=$(
+    cd "$problem_dir"
+    env \
+        "${browser_environment[@]}" \
+        "CFX_CLIPBOARD=$fixtures/clipboard.sh" \
+        "CFX_TEST_CLIPBOARD=$clipboard_payload" \
+        "$repo_root/cfx" --root "$sandbox" submit --manual --remote-check 2>&1
+); then
+    echo 'fetch/submit workflow: remote manual handoff was reported as accepted' >&2
+    exit 1
+else
+    remote_submit_status=$?
+fi
+[[ $remote_submit_status == 2 ]]
+grep -q '2/2 ran; output unchecked' <<<"$remote_submit_output"
+grep -q 'Checked build passed' <<<"$remote_submit_output"
+grep -q 'Copied tested bundle .* to the clipboard' <<<"$remote_submit_output"
+wait_for_log '^manual$' "$browser_log"
+
 printf '99990A\n' >"$state/current-problem"
 : >"$browser_log"
 if stale_output=$(

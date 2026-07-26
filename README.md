@@ -76,6 +76,13 @@ cfx sync 71
 git push
 ```
 
+For a construction problem whose output is checked by Codeforces:
+
+```sh
+cfx test --remote-check 2250B
+cfx submit --remote-check 2250B
+```
+
 `cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
 `solution.cpp`, and remembers the problem. If Codeforces is unavailable, the
 connector tries its official contest mirrors. `cfx submit` tests and
@@ -84,6 +91,10 @@ Chrome, and waits for the verdict. Only `OK` on `TESTS` is archived as
 Accepted. With `cfx.record=commit`, it is committed immediately. `PRETESTS` and
 known pending submissions preserve their exact source and receipt in external
 state.
+
+`--remote-check` still enforces compilation and execution limits, but shows an
+unchecked output preview instead of comparing it with the sample answer.
+Codeforces remains the checker.
 
 After final judging, `cfx sync [CONTEST|PROBLEM]` reconciles the saved submission
 IDs. A numeric contest is the ID in `/contest/<id>/`, not the displayed round

@@ -71,8 +71,9 @@ template. A numeric contest fetches indexes from the official Codeforces API.
 
 Bundle, compile, and judge samples followed by handwritten cases. The problem
 is inferred when the command runs inside its archive directory. Fetched
-Codeforces time and memory limits are used by default. Options: --checked, --rebuild,
---time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
+Codeforces time and memory limits are used by default. --remote-check runs the
+inputs without comparing their output. Options: --checked, --rebuild,
+--remote-check, --time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
 )"},
     {"bundle", R"(usage: cfx bundle [--output FILE] [PROBLEM]
 
@@ -91,15 +92,16 @@ and --verbose.
 Listen for Competitive Companion JSON and store fetched samples separately
 from handwritten cases. Existing differing pairs require --force.
 )"},
-    {"submit", R"(usage: cfx submit [--manual] [--rebuild] [PROBLEM]
+    {"submit", R"(usage: cfx submit [--manual] [--rebuild] [--remote-check] [PROBLEM]
 
 Run saved tests, create and checked-compile the final bundle, then submit it
 through the installed browser connector and the browser's authenticated
-Codeforces session. If Chrome has no connector, fall back to copying the exact
-tested source and opening the submission page. --manual selects that fallback
-directly. With no PROBLEM, use the current directory or the most recent problem
-opened by `cfx PROBLEM`; conflicting targets require an explicit ID. No
-password or cookie is read or stored by cfx.
+Codeforces session. --remote-check enforces execution limits but leaves output
+validation to Codeforces. If Chrome has no connector, fall back to copying the
+exact tested source and opening the submission page. --manual selects that
+fallback directly. With no PROBLEM, use the current directory or the most
+recent problem opened by `cfx PROBLEM`; conflicting targets require an explicit
+ID. No password or cookie is read or stored by cfx.
 Exit status is 0 only for `OK` on `TESTS`, 1 for a final non-Accepted verdict,
 and 2 while judging is pending or submission requires manual completion.
 )"},
@@ -336,6 +338,8 @@ int command_test(Arguments arguments, const fs::path& root) {
             options.checked = true;
         } else if (argument == "--rebuild") {
             options.rebuild = true;
+        } else if (argument == "--remote-check") {
+            options.remote_check = true;
         } else if (argument == "--time-limit") {
             options.timeout = duration(arguments.take(), "--time-limit");
         } else if (argument == "--memory-limit") {
@@ -485,7 +489,7 @@ int command_cc(Arguments arguments, const fs::path& root) {
 }
 
 int command_submit(Arguments arguments, const fs::path& root) {
-    bool rebuild = false;
+    cfx::SubmissionOptions options;
     bool manual = false;
     std::vector<std::string> positional;
     while (!arguments.empty()) {
@@ -495,7 +499,9 @@ int command_submit(Arguments arguments, const fs::path& root) {
             return 0;
         }
         if (argument == "--rebuild") {
-            rebuild = true;
+            options.rebuild = true;
+        } else if (argument == "--remote-check") {
+            options.remote_check = true;
         } else if (argument == "--manual") {
             manual = true;
         } else if (argument.starts_with("-")) {
@@ -506,8 +512,7 @@ int command_submit(Arguments arguments, const fs::path& root) {
     }
 
     const Problem problem = resolve_submission_problem(positional, root);
-    const cfx::SubmissionArtifact artifact =
-        cfx::prepare_submission(root, problem, rebuild);
+    const cfx::SubmissionArtifact artifact = cfx::prepare_submission(root, problem, options);
     std::cout << "Checked build passed\n";
 
     const auto prepare_manual = [&] {

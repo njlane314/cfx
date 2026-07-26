@@ -100,10 +100,12 @@ std::vector<std::string> clipboard_command() {
 
 } // namespace
 
-SubmissionArtifact prepare_submission(const fs::path& root, const Problem& problem, bool rebuild) {
+SubmissionArtifact prepare_submission(const fs::path& root, const Problem& problem,
+                                      const SubmissionOptions& options) {
     Judge judge(root);
     TestOptions test_options;
-    test_options.rebuild = rebuild;
+    test_options.rebuild = options.rebuild;
+    test_options.remote_check = options.remote_check;
     test_options.concise = true;
     test_options.submission_profile = true;
     const TestSummary tests = judge.test(problem, test_options);
@@ -111,11 +113,12 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
         throw std::runtime_error("submission stopped: saved tests failed");
     }
     if (tests.total == 0) {
-        throw std::runtime_error("submission stopped: no complete input/output test pair exists");
+        throw std::runtime_error("submission stopped: no saved test input exists");
     }
 
     Builder builder(root);
-    const BuildResult checked = builder.build_problem(problem, BuildOptions{true, rebuild, false});
+    const BuildResult checked =
+        builder.build_problem(problem, BuildOptions{true, options.rebuild, false});
     if (read_text(tests.build.bundled_source) != read_text(checked.bundled_source)) {
         throw std::runtime_error("submission stopped: source changed while tests were running");
     }
