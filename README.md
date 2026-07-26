@@ -40,13 +40,7 @@ under `submissions/`. `cfx` never pushes.
 
 Requires Bash, a C++20 compiler, `make`, `curl`, and Chrome.
 
-Homebrew, after the first signed release and tap are published:
-
-```sh
-brew install njlane314/cfx/cfx
-```
-
-From source today:
+From source:
 
 ```sh
 make install

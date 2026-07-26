@@ -46,14 +46,8 @@ codesign -dv --verbose=4 cfx-1.2.3-macos-arm64/libexec/cfx
 
 ## Homebrew
 
-The public formula lives in the conventional `njlane314/homebrew-cfx` tap.
-After the first tagged release:
-
-```sh
-brew install njlane314/cfx/cfx
-```
-
-The tag workflow renders the formula with the release source checksum, runs its
+The public formula lives in the conventional `njlane314/homebrew-cfx` tap. The
+tag workflow renders it with the release source checksum, runs its
 style and installation tests on macOS, then advances `Formula/cfx.rb` in that
 tap. The copy in this repository is the head-development formula; maintainers
 can test it with `brew install --HEAD ./release/cfx.rb`.
