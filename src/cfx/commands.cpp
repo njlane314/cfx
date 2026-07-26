@@ -58,8 +58,8 @@ and inference from codeforces/<contest>/<index>/ are supported.
 const std::map<std::string, std::string, std::less<>> kCommandHelp{
     {"get", R"(usage: cfx get PROBLEM|CONTEST
 
-Create codeforces/<contest>/<index>/ from templates/solution.cpp. A numeric
-contest fetches its problem indexes from the official Codeforces API.
+Create codeforces/<contest>/<index>/ from the archive or packaged solution
+template. A numeric contest fetches indexes from the official Codeforces API.
 )"},
     {"test", R"(usage: cfx test [options] [PROBLEM]
 

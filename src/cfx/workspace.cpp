@@ -27,6 +27,10 @@ fs::path select_template(const fs::path& root, const fs::path& requested_templat
     if (!requested_template.empty()) {
         return requested_template.is_absolute() ? requested_template : root / requested_template;
     }
+    const auto local = root / ".cfx" / "solution.cpp";
+    if (fs::exists(local)) {
+        return local;
+    }
     const auto preferred = asset_root(root) / "templates" / "solution.cpp";
     if (fs::is_regular_file(preferred)) {
         return preferred;

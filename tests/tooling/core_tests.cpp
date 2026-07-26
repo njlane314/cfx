@@ -215,6 +215,19 @@ void test_separate_asset_root() {
     require(cfx::asset_root(workspace.path()) == fs::weakly_canonical(assets.path()),
             "configured asset root resolves independently");
 
+    write(workspace.path() / ".cfx" / "solution.cpp", "// archive template\n");
+    const auto local_problem = cfx::Problem::parse("72A", workspace.path());
+    const auto local_created = cfx::Workspace(workspace.path()).create(local_problem);
+    require(read(local_created.solution) == "// archive template\n",
+            "archive template overrides installed template");
+
+    write(workspace.path() / "explicit.cpp", "// explicit template\n");
+    const auto explicit_problem = cfx::Problem::parse("73A", workspace.path());
+    const auto explicit_created =
+        cfx::Workspace(workspace.path()).create(explicit_problem, "explicit.cpp");
+    require(read(explicit_created.solution) == "// explicit template\n",
+            "explicit template overrides archive template");
+
     write(workspace.path() / "solution.cpp",
           "#include \"cp/value.hpp\"\nint main() { return value; }\n");
     const std::string installed = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());

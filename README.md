@@ -13,7 +13,7 @@ store.
 ## USAGE
 
 ```sh
-cd accepted
+cd solutions
 cfx 71A
 # edit solution.cpp
 cfx submit
@@ -26,15 +26,38 @@ it through Chrome, and waits for the verdict. Tooling and runtime state remain
 outside the archive; only solutions, metadata, authored cases, and stress tools
 belong there.
 
-Enable one local commit per Accepted verdict in the solution archive:
+## SOLUTION ARCHIVE
+
+Start with an ordinary Git repository:
 
 ```sh
+git init -b main solutions
+cd solutions
 git config cfx.record commit
+cfx 71A
 ```
 
-The commit records the Codeforces submission ID, URL, resource use, and source
-digest. If bundling changed the source, the exact submitted file is retained
-under `submissions/`. `cfx` never pushes.
+`cfx` creates the archive as needed:
+
+```text
+solutions/
+├── .cfx/solution.cpp               optional starter template
+├── include/                        optional personal headers
+└── codeforces/<contest>/<index>/
+    ├── solution.cpp
+    ├── problem.json
+    ├── cases/                      optional authored tests
+    ├── stress/                     optional generator and brute force
+    └── submissions/                exact accepted bundle, when needed
+```
+
+Only durable, authored files belong here. Fetched samples, builds, run output,
+failures, prepared submissions, and receipts remain external. Empty optional
+directories need no placeholder files.
+
+A tracked `.cfx/solution.cpp` overrides the packaged starter. With
+`cfx.record=commit`, an Accepted verdict creates one local commit containing the
+submission ID, URL, resource use, and source digest. `cfx` never pushes.
 
 ## INSTALL
 
@@ -46,7 +69,11 @@ From source:
 make install
 ```
 
-This installs `cfx` in `~/.local/bin` and its manual as `man cfx`.
+This installs `cfx` in `~/.local/bin`. Read the manual with:
+
+```sh
+man cfx
+```
 
 ## CHROME SETUP
 

@@ -23,7 +23,7 @@ class Workspace {
     explicit Workspace(std::filesystem::path root = std::filesystem::current_path());
 
     // Creates codeforces/<contest>/<index> without overwriting an existing
-    // solution. An empty template_path selects templates/solution.cpp.
+    // solution. Template precedence is explicit, .cfx/solution.cpp, packaged.
     WorkspaceResult create(const Problem& problem,
                            const std::filesystem::path& template_path = {}) const;
 
