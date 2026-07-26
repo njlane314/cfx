@@ -1,4 +1,4 @@
-# cfx
+# CFX
 
 [![Build](https://github.com/njlane314/cfx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/njlane314/cfx/actions/workflows/ci.yml)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C)
@@ -10,7 +10,7 @@ submits the exact tested source through your signed-in browser, and reports the
 Codeforces verdict. There is no cfx account, hosted service, or credential
 store.
 
-## Usage
+## USAGE
 
 ```sh
 cfx 71A
@@ -23,7 +23,7 @@ cfx submit
 every saved sample and case, checked-compiles the exact bundled source, submits
 it through Chrome, and waits for the verdict.
 
-## Install
+## INSTALL
 
 Requires Bash, a C++20 compiler, `make`, `curl`, and Chrome.
 
@@ -41,7 +41,7 @@ make install
 
 This installs `cfx` in `~/.local/bin`.
 
-## Chrome setup
+## CHROME SETUP
 
 The connector is prepared for public Chrome Web Store distribution. Until its
 listing is approved, install it locally once:
@@ -64,7 +64,7 @@ flow.
 Without the connector, `cfx submit` copies the tested bundle and opens the
 submission page. Use `cfx submit --manual` to request that path directly.
 
-## Library
+## LIBRARY
 
 The solution template contains only stream setup and `solve()`. Reusable,
 header-only components live under `include/cp/` and are included selectively:
@@ -76,7 +76,7 @@ header-only components live under `include/cp/` and are included selectively:
 Each header is self-contained and uses the `cp` namespace. `cfx bundle` expands
 local headers into submission-ready source.
 
-## Checks
+## CHECKS
 
 ```sh
 make verify
@@ -84,7 +84,7 @@ make verify
 
 Run `cfx help` for advanced commands.
 
-## Demonstration
+## DEMONSTRATION
 
 ```sh
 browser/demo/build.sh
@@ -96,6 +96,6 @@ Store artwork under `.build/browser/store/`. It never contacts Codeforces or
 submits externally. See [browser/STORE.md](browser/STORE.md) for publication
 details.
 
-## License
+## LICENSE
 
 [MIT](LICENSE)
