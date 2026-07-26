@@ -48,6 +48,7 @@ int dispatch(std::string command, Arguments arguments, const fs::path& root) {
     if (command == "fail") return command_fail(std::move(arguments), root);
     if (command == "cc") return command_cc(std::move(arguments), root);
     if (command == "submit") return command_submit(std::move(arguments), root);
+    if (command == "sync") return command_sync(std::move(arguments), root);
 
     std::vector<std::string> problem{std::move(command)};
     while (!arguments.empty()) problem.push_back(arguments.take());

@@ -103,6 +103,28 @@ std::uint64_t required_integer(const Json& object, std::string_view name) {
     return nonnegative_integer(*value, name);
 }
 
+struct SubmissionPage {
+    std::size_t size = 0;
+    std::uint64_t oldest_id = 0;
+};
+
+SubmissionPage submission_page(std::string_view response) {
+    const Json document = parse_json(response);
+    const Json& result = api_result(document);
+    if (!result.is_array()) {
+        throw std::runtime_error("Codeforces API returned invalid submission data");
+    }
+    SubmissionPage page{result.array().size(), 0};
+    for (const Json& submission : result.array()) {
+        if (!submission.is_object()) {
+            throw std::runtime_error("Codeforces API returned an invalid submission");
+        }
+        const std::uint64_t id = required_integer(submission, "id");
+        page.oldest_id = page.oldest_id == 0 ? id : std::min(page.oldest_id, id);
+    }
+    return page;
+}
+
 std::uint64_t decimal_id(std::string_view value, std::string_view name) {
     std::uint64_t result = 0;
     const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
@@ -172,8 +194,8 @@ std::string verdict_text(std::string_view verdict, std::string_view testset) {
     return text;
 }
 
-void validate_submission(const Json& submission, std::uint64_t contest,
-                         std::string_view problem_index, std::string_view handle) {
+std::string validate_submission(const Json& submission, std::uint64_t contest,
+                                std::string_view problem_index, std::string_view handle) {
     if (required_integer(submission, "contestId") != contest) {
         throw std::runtime_error("Codeforces API submission has the wrong contest");
     }
@@ -205,18 +227,17 @@ void validate_submission(const Json& submission, std::uint64_t contest,
     if (!found) {
         throw std::runtime_error("Codeforces API submission has the wrong author");
     }
-}
 
-CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
-                                              const std::string& problem_index,
-                                              const std::string& handle,
-                                              const std::string& submission_id,
-                                              int timeout_seconds) {
-    const std::string url = api_base() + "/contest.status?contestId=" +
-                            query_value(contest_id) + "&handle=" + query_value(handle) +
-                            "&from=1&count=50";
-    return parse_submission_status(api_get(url, timeout_seconds), contest_id, problem_index, handle,
-                                   submission_id);
+    const Json* participant_type = author->find("participantType");
+    if (participant_type == nullptr || !participant_type->is_string()) {
+        throw std::runtime_error("Codeforces API submission has no participant type");
+    }
+    const std::string& value = participant_type->string();
+    if (value != "CONTESTANT" && value != "PRACTICE" && value != "VIRTUAL" &&
+        value != "MANAGER" && value != "OUT_OF_COMPETITION") {
+        throw std::runtime_error("Codeforces API submission has an invalid participant type");
+    }
+    return value;
 }
 
 } // namespace
@@ -277,10 +298,13 @@ CodeforcesSubmission parse_submission_status(std::string_view response,
     if (match == nullptr) {
         return {};
     }
-    validate_submission(*match, contest, problem_index, handle);
+    const std::string participant_type =
+        validate_submission(*match, contest, problem_index, handle);
 
     CodeforcesSubmission status;
     status.found = true;
+    status.handle = handle;
+    status.participant_type = participant_type;
     const Json* verdict = match->find("verdict");
     if (verdict == nullptr || verdict->is_null()) {
         return status;
@@ -302,11 +326,39 @@ CodeforcesSubmission parse_submission_status(std::string_view response,
     if (testset == nullptr || !testset->is_string()) {
         throw std::runtime_error("Codeforces API returned no testset");
     }
+    status.testset = testset->string();
     status.verdict_text = verdict_text(status.verdict, testset->string());
     status.passed_test_count = required_integer(*match, "passedTestCount");
     status.time_consumed_millis = required_integer(*match, "timeConsumedMillis");
     status.memory_consumed_bytes = required_integer(*match, "memoryConsumedBytes");
     return status;
+}
+
+CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
+                                              const std::string& problem_index,
+                                              const std::string& handle,
+                                              const std::string& submission_id,
+                                              int timeout_seconds) {
+    constexpr int page_size = 50;
+    constexpr int page_limit = 20;
+    const std::uint64_t expected_id = decimal_id(submission_id, "submission ID");
+    for (int page = 0; page < page_limit; ++page) {
+        if (page != 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2100));
+        }
+        const std::string url = api_base() + "/contest.status?contestId=" +
+                                query_value(contest_id) + "&handle=" + query_value(handle) +
+                                "&from=" + std::to_string(page * page_size + 1) +
+                                "&count=" + std::to_string(page_size);
+        const std::string response = api_get(url, timeout_seconds);
+        CodeforcesSubmission status = parse_submission_status(
+            response, contest_id, problem_index, handle, submission_id);
+        const SubmissionPage page_data = submission_page(response);
+        if (status.found || page_data.size < page_size || page_data.oldest_id < expected_id) {
+            return status;
+        }
+    }
+    return {};
 }
 
 CodeforcesSubmission poll_submission_status(
@@ -337,7 +389,7 @@ CodeforcesSubmission poll_submission_status(
             last_status = error.what();
         }
 
-        const auto next = std::min(deadline, request_started + interval);
+        const auto next = std::min(deadline, std::chrono::steady_clock::now() + interval);
         std::this_thread::sleep_until(next);
     }
     throw std::runtime_error(last_status);
@@ -347,8 +399,8 @@ std::string problem_url(const Problem& problem) {
     return "https://codeforces.com/contest/" + problem.contest_id() + "/problem/" + problem.index();
 }
 
-std::string submission_url(const Problem&) {
-    return "https://codeforces.com/problemset/submit";
+std::string submission_url(const Problem& problem) {
+    return "https://codeforces.com/contest/" + problem.contest_id() + "/submit";
 }
 
 } // namespace cfx

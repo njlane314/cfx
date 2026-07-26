@@ -41,5 +41,6 @@ int command_stress(Arguments arguments, const std::filesystem::path& root);
 int command_fail(Arguments arguments, const std::filesystem::path& root);
 int command_cc(Arguments arguments, const std::filesystem::path& root);
 int command_submit(Arguments arguments, const std::filesystem::path& root);
+int command_sync(Arguments arguments, const std::filesystem::path& root);
 
 } // namespace cfx::cli

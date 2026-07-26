@@ -14,6 +14,7 @@
 #include "workspace.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -25,6 +26,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace cfx::cli {
@@ -35,12 +37,14 @@ using cfx::Problem;
 const char* kHelp = R"(usage:
   cfx PROBLEM
   cfx submit
+  cfx sync [CONTEST|PROBLEM]
 
 A small C++20 Codeforces workbench.
 
 daily:
   cfx 71A             fetch samples and open solution.cpp
   cfx submit          test, checked-build, and submit through the browser
+  cfx sync            reconcile final judging
 
 advanced:
   test [PROBLEM]        build and judge saved samples and cases
@@ -53,6 +57,8 @@ advanced:
 
 Problems are canonically 71A. A.71, A 71 (as two arguments), Codeforces URLs,
 and inference from codeforces/<contest>/<index>/ are supported.
+Set `git config cfx.record commit` in the solutions repo to record final
+acceptances locally. cfx never pushes.
 )";
 
 const std::map<std::string, std::string, std::less<>> kCommandHelp{
@@ -94,8 +100,14 @@ tested source and opening the submission page. --manual selects that fallback
 directly. With no PROBLEM, use the current directory or the most recent problem
 opened by `cfx PROBLEM`; conflicting targets require an explicit ID. No
 password or cookie is read or stored by cfx.
-Exit status is 0 only for an Accepted verdict, 1 for a completed non-Accepted
-verdict, and 2 when submission or judging was not completed automatically.
+Exit status is 0 only for `OK` on `TESTS`, 1 for a final non-Accepted verdict,
+and 2 while judging is pending or submission requires manual completion.
+)"},
+    {"sync", R"(usage: cfx sync [CONTEST|PROBLEM]
+
+Recheck saved submissions after final judging and record confirmed acceptances.
+Set `git config cfx.record commit` to create local acceptance commits. Repeated
+runs are safe. Never pushes.
 )"},
     {"fail", R"(usage: cfx fail [PROBLEM]
 
@@ -527,31 +539,172 @@ int command_submit(Arguments arguments, const fs::path& root) {
     }
     std::cout << "Submitted " << artifact.target << " as " << artifact.language << '\n'
               << "Submission: " << receipt.submission_id << '\n'
-              << "URL: " << receipt.submission_url << '\n'
-              << "Verdict: " << receipt.verdict_text << '\n'
-              << "Tests passed: " << receipt.passed_test_count << '\n'
-              << "Time: " << receipt.time_consumed_millis << " ms\n"
-              << "Memory: " << cfx::format_bytes(receipt.memory_consumed_bytes) << '\n'
-              << "Judging wait: "
+              << "URL: " << receipt.submission_url << '\n';
+    const bool accepted = receipt.verdict == "OK" && receipt.testset == "TESTS";
+    const bool pretests = receipt.verdict == "OK" && receipt.testset == "PRETESTS";
+    if (!receipt.participant_type.empty()) {
+        std::cout << "Participation: " << receipt.participant_type << '\n';
+    }
+    if (receipt.verdict.empty()) {
+        std::cout << "Verdict: Pending\n";
+    } else {
+        std::cout << "Verdict: ";
+        if (pretests) {
+            std::cout << "Pretests passed";
+        } else if (receipt.verdict == "OK" && !accepted) {
+            std::cout << "Pending";
+            if (!receipt.testset.empty()) std::cout << " (" << receipt.testset << ')';
+        } else {
+            std::cout << receipt.verdict_text;
+        }
+        std::cout << '\n'
+                  << "Tests passed: " << receipt.passed_test_count << '\n'
+                  << "Time: " << receipt.time_consumed_millis << " ms\n"
+                  << "Memory: " << cfx::format_bytes(receipt.memory_consumed_bytes) << '\n';
+    }
+    std::cout << "Judging wait: "
               << cfx::format_duration(std::chrono::milliseconds(receipt.judging_wait_millis))
               << '\n';
-    if (receipt.verdict != "OK") {
-        return 1;
+
+    std::optional<cfx::RecordedSubmission> recorded;
+    try {
+        recorded = cfx::record_submission(root, problem, artifact, receipt);
+    } catch (const std::exception& error) {
+        std::cerr << "warning: submission recording failed: " << error.what() << '\n';
+    }
+    if (recorded && recorded->commit) {
+        std::cout << "Recorded: " << problem.id() << " ["
+                  << recorded->commit->substr(0, 12) << "]\n";
+    } else if (recorded && recorded->state == cfx::SubmissionState::accepted) {
+        std::cout << "Receipt: " << recorded->receipt << '\n';
     }
 
-    try {
-        const cfx::AcceptanceRecord recorded =
-            cfx::record_acceptance(root, problem, artifact, receipt);
-        if (recorded.commit) {
-            std::cout << "Recorded: " << problem.id() << " ["
-                      << recorded.commit->substr(0, 12) << "]\n";
-        } else {
-            std::cout << "Receipt: " << recorded.receipt << '\n';
-        }
-    } catch (const std::exception& error) {
-        std::cerr << "warning: Accepted, but recording failed: " << error.what() << '\n';
+    if (receipt.verdict.empty()) {
+        std::cout << "Pending: "
+                  << (receipt.pending_reason.empty() ? "Codeforces verdict" : receipt.pending_reason)
+                  << '\n';
+        return 2;
     }
-    return 0;
+    if (receipt.verdict == "OK" && !accepted) {
+        std::cout << "Pending: final judging\n";
+        return 2;
+    }
+    return accepted ? 0 : 1;
+}
+
+int command_sync(Arguments arguments, const fs::path& root) {
+    std::vector<std::string> positional;
+    while (!arguments.empty()) {
+        const std::string argument = arguments.take();
+        if (argument == "--help" || argument == "-h") {
+            show_command_help("sync");
+            return 0;
+        }
+        if (argument.starts_with("-")) {
+            throw std::runtime_error("sync: unknown option " + argument);
+        }
+        positional.push_back(argument);
+    }
+    if (positional.size() > 2) {
+        throw std::runtime_error("usage: cfx sync [CONTEST|PROBLEM]");
+    }
+
+    std::optional<std::string> contest_filter;
+    std::optional<std::string> problem_filter;
+    if (positional.size() == 1 && all_digits(positional.front())) {
+        contest_filter = positional.front();
+    } else if (!positional.empty()) {
+        problem_filter = resolve_problem(positional, root).id();
+    }
+
+    std::vector<cfx::StoredSubmission> stored = cfx::unresolved_submissions(root);
+    stored.erase(std::remove_if(stored.begin(), stored.end(), [&](const auto& submission) {
+        const Problem problem = Problem::parse(submission.problem_id, root);
+        return (contest_filter && problem.contest_id() != *contest_filter) ||
+               (problem_filter && problem.id() != *problem_filter);
+    }), stored.end());
+    if (stored.empty()) {
+        std::cout << "sync: up to date\n";
+        return 0;
+    }
+
+    bool pending = false;
+    bool rejected = false;
+    std::optional<std::chrono::steady_clock::time_point> last_request;
+    for (const cfx::StoredSubmission& submission : stored) {
+        const Problem problem = Problem::parse(submission.problem_id, root);
+        if (submission.state == cfx::SubmissionState::accepted) {
+            try {
+                const cfx::RecordedSubmission result =
+                    cfx::retry_submission_recording(root, submission);
+                std::cout << problem.id() << ": Accepted " << submission.submission_id;
+                if (result.commit) {
+                    std::cout << " [" << result.commit->substr(0, 12) << ']';
+                }
+                std::cout << '\n';
+            } catch (const std::exception& error) {
+                std::cout << problem.id() << ": not recorded (" << error.what() << ")\n";
+                pending = true;
+            }
+            continue;
+        }
+        if (last_request) {
+            std::this_thread::sleep_until(*last_request + std::chrono::milliseconds(2100));
+        }
+
+        cfx::CodeforcesSubmission status;
+        try {
+            status = cfx::fetch_submission_status(problem.contest_id(), problem.index(),
+                                                  submission.handle,
+                                                  submission.submission_id, 20);
+        } catch (const std::exception& error) {
+            last_request = std::chrono::steady_clock::now();
+            std::string message = error.what();
+            std::replace_if(message.begin(), message.end(), [](unsigned char character) {
+                return std::isspace(character) != 0;
+            }, ' ');
+            std::cout << problem.id() << ": pending (" << message << ")\n";
+            pending = true;
+            continue;
+        }
+        last_request = std::chrono::steady_clock::now();
+        if (!status.found || !status.terminal) {
+            std::cout << problem.id() << ": pending\n";
+            pending = true;
+            continue;
+        }
+
+        try {
+            const cfx::RecordedSubmission result =
+                cfx::update_submission(root, submission, status);
+            if (result.state == cfx::SubmissionState::pretests) {
+                std::cout << problem.id() << ": pretests " << submission.submission_id;
+                if (!status.participant_type.empty()) {
+                    std::cout << " (" << status.participant_type << ')';
+                }
+                std::cout << '\n';
+                pending = true;
+            } else if (result.state == cfx::SubmissionState::accepted) {
+                std::cout << problem.id() << ": Accepted " << submission.submission_id;
+                if (result.commit) {
+                    std::cout << " [" << result.commit->substr(0, 12) << ']';
+                }
+                std::cout << '\n';
+            } else if (result.state == cfx::SubmissionState::rejected) {
+                std::cout << problem.id() << ": " << status.verdict_text << ' '
+                          << submission.submission_id << '\n';
+                rejected = true;
+            } else {
+                std::cout << problem.id() << ": pending\n";
+                pending = true;
+            }
+        } catch (const std::exception& error) {
+            std::cout << problem.id() << ": not recorded (" << error.what() << ")\n";
+            pending = true;
+        }
+    }
+    if (pending) return 2;
+    return rejected ? 1 : 0;
 }
 
 } // namespace cfx::cli

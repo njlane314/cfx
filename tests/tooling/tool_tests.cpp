@@ -56,8 +56,10 @@ void check(bool condition, const std::string& message);
 
 class SubmissionApiServer {
   public:
-    explicit SubmissionApiServer(std::vector<std::string> responses)
-        : responses_(std::move(responses)), worker_([this] { run(); }) {}
+    explicit SubmissionApiServer(std::vector<std::string> responses,
+                                 std::vector<int> expected_from = {})
+        : responses_(std::move(responses)), expected_from_(std::move(expected_from)),
+          worker_([this] { run(); }) {}
 
     ~SubmissionApiServer() {
         if (worker_.joinable()) {
@@ -79,17 +81,26 @@ class SubmissionApiServer {
   private:
     void run() {
         try {
-            for (const std::string& body : responses_) {
+            check(expected_from_.empty() || expected_from_.size() == responses_.size(),
+                  "Codeforces API fixture has mismatched page expectations");
+            for (std::size_t index = 0; index < responses_.size(); ++index) {
+                const std::string& body = responses_[index];
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
                 std::optional<cfx::browser_http::Connection> accepted =
                     server_.accept_until(deadline, std::chrono::seconds(1));
                 check(accepted.has_value(), "Codeforces API fixture timed out");
                 cfx::browser_http::Connection connection = std::move(*accepted);
                 const cfx::browser_http::Request request = connection.read(
-                    deadline, [](const cfx::browser_http::RequestHead& head) {
+                    deadline, [this, index](const cfx::browser_http::RequestHead& head) {
                         check(head.method == "GET", "Codeforces API fixture expected GET");
                         check(head.target.starts_with("/contest.status?contestId=99993&handle=panicsort&"),
                               "Codeforces API fixture received the wrong query");
+                        if (!expected_from_.empty()) {
+                            const std::string page =
+                                "&from=" + std::to_string(expected_from_[index]) + "&count=50";
+                            check(head.target.find(page) != std::string::npos,
+                                  "Codeforces API fixture received the wrong page");
+                        }
                         check(head.content_length.value_or(0) == 0,
                               "Codeforces API fixture received a request body");
                         return std::size_t{0};
@@ -108,6 +119,7 @@ class SubmissionApiServer {
 
     cfx::browser_http::Server server_;
     std::vector<std::string> responses_;
+    std::vector<int> expected_from_;
     std::thread worker_;
     std::exception_ptr error_;
 };
@@ -168,19 +180,23 @@ void test_json_and_codeforces() {
     const auto testing = cfx::parse_submission_status(
         R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
         R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"PanicSort"}]},"verdict":"TESTING"}]})",
+        R"("author":{"members":[{"handle":"PanicSort"}],"participantType":"CONTESTANT"},)"
+        R"("verdict":"TESTING"}]})",
         "99993", "C", "panicsort", "123456789");
-    check(testing.found && !testing.terminal && testing.verdict == "TESTING",
+    check(testing.found && !testing.terminal && testing.verdict == "TESTING" &&
+              testing.handle == "panicsort" && testing.participant_type == "CONTESTANT",
           "testing submission remains pending");
 
     const auto tle = cfx::parse_submission_status(
         R"({"status":"OK","result":[{"id":111},{"id":123456789,"contestId":99993,)"
         R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}]},)"
+        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"PRACTICE"},)"
         R"("verdict":"TIME_LIMIT_EXCEEDED","testset":"TESTS","passedTestCount":2,)"
         R"("timeConsumedMillis":1000,"memoryConsumedBytes":204800}]})",
         "99993", "C", "panicsort", "123456789");
     check(tle.terminal && tle.verdict_text == "Time Limit Exceeded" &&
+              tle.handle == "panicsort" && tle.participant_type == "PRACTICE" &&
+              tle.testset == "TESTS" &&
               tle.passed_test_count == 2 && tle.time_consumed_millis == 1000 &&
               tle.memory_consumed_bytes == 204800,
           "terminal API verdict carries official metrics");
@@ -188,18 +204,22 @@ void test_json_and_codeforces() {
     const auto pretests = cfx::parse_submission_status(
         R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
         R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"OK",)"
+        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
+        R"("verdict":"OK",)"
         R"("testset":"PRETESTS","passedTestCount":5,"timeConsumedMillis":10,)"
         R"("memoryConsumedBytes":1024}]})",
         "99993", "C", "panicsort", "123456789");
-    check(pretests.verdict_text == "Accepted (pretests)", "pretest acceptance stays explicit");
+    check(pretests.terminal && pretests.verdict_text == "Accepted (pretests)" &&
+              pretests.participant_type == "CONTESTANT" && pretests.testset == "PRETESTS",
+          "pretest acceptance stays explicit and provisional");
 
     check_throws(
         [] {
             (void)cfx::parse_submission_status(
                 R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
                 R"("problem":{"contestId":99993,"index":"C"},)"
-                R"("author":{"members":[{"handle":"someone_else"}]},"verdict":"TESTING"}]})",
+                R"("author":{"members":[{"handle":"someone_else"}],"participantType":"CONTESTANT"},)"
+                R"("verdict":"TESTING"}]})",
                 "99993", "C", "panicsort", "123456789");
         },
         "submission API record must match the confirmed author");
@@ -208,19 +228,31 @@ void test_json_and_codeforces() {
             (void)cfx::parse_submission_status(
                 R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
                 R"("problem":{"contestId":99993,"index":"C"},)"
-                R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"OK",)"
+                R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
+                R"("verdict":"OK",)"
                 R"("testset":"TESTS","passedTestCount":1.5,"timeConsumedMillis":10,)"
                 R"("memoryConsumedBytes":1024}]})",
                 "99993", "C", "panicsort", "123456789");
         },
         "submission API metrics must be integers");
+    check_throws(
+        [] {
+            (void)cfx::parse_submission_status(
+                R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+                R"("problem":{"contestId":99993,"index":"C"},)"
+                R"("author":{"members":[{"handle":"panicsort"}],"participantType":"UNKNOWN"},)"
+                R"("verdict":"TESTING"}]})",
+                "99993", "C", "panicsort", "123456789");
+        },
+        "unknown participant types must be rejected");
 }
 
 void test_codeforces_poll_interval() {
     SubmissionApiServer api({
         R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
         R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"OK",)"
+        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
+        R"("verdict":"OK",)"
         R"("testset":"TESTS","passedTestCount":20,"timeConsumedMillis":46,)"
         R"("memoryConsumedBytes":102400}]})",
     });
@@ -234,6 +266,32 @@ void test_codeforces_poll_interval() {
     ::unsetenv("CFX_API_BASE");
     check(status.terminal && elapsed >= std::chrono::milliseconds(25),
           "first official API poll respects the rate-limit interval");
+}
+
+void test_codeforces_status_pagination() {
+    std::string first_page = R"({"status":"OK","result":[)";
+    for (int offset = 0; offset < 50; ++offset) {
+        if (offset != 0) first_page += ',';
+        first_page += "{\"id\":" + std::to_string(123456900 - offset) + '}';
+    }
+    first_page += "]}";
+
+    SubmissionApiServer api({
+        first_page,
+        R"({"status":"OK","result":[{"id":123456800,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
+        R"("verdict":"OK","testset":"TESTS","passedTestCount":20,)"
+        R"("timeConsumedMillis":46,"memoryConsumedBytes":102400}]})",
+    }, {1, 51});
+    ::setenv("CFX_API_BASE", api.base_url().c_str(), 1);
+    const cfx::CodeforcesSubmission status =
+        cfx::fetch_submission_status("99993", "C", "panicsort", "123456800", 2);
+    api.wait();
+    ::unsetenv("CFX_API_BASE");
+    check(status.found && status.terminal && status.verdict == "OK" &&
+              status.testset == "TESTS",
+          "exact submission lookup continues beyond the first API page");
 }
 
 void test_process_and_normalization(const fs::path& root, const fs::path& executable) {
@@ -499,8 +557,8 @@ void test_submission_preparation(const fs::path& root) {
           "authored snapshot matches the solution");
     check(artifact.target == "88A", "submission target");
     check(artifact.language == "GNU C++20", "submission language");
-    check(artifact.page_url == "https://codeforces.com/problemset/submit",
-          "submission uses the archive problemset page");
+    check(artifact.page_url == "https://codeforces.com/contest/88/submit",
+          "submission uses the contest page");
     check(artifact.source_hash.size() == 32, "submission hash");
     check(artifact.source_hash == cfx::content_digest(artifact.source_text),
           "submission hash matches pinned source");
@@ -566,7 +624,7 @@ void test_browser_submission_states() {
     options.verdict_poll_interval = std::chrono::milliseconds(10);
     options.extension_id = "abcdefghijklmnopabcdefghijklmnop";
     const cfx::BrowserSubmitRequest request{
-        "https://codeforces.com/problemset/submit",
+        "https://codeforces.com/contest/99993/submit",
         "99993C",
         "C",
         "GNU C++20",
@@ -617,14 +675,29 @@ void test_browser_submission_states() {
     }
     check(reported_unknown, "uncertain browser result is not reported as a safe rejection");
 
+    SubmissionApiServer pending_api({
+        R"({"status":"OK","result":[]})",
+    });
+    cfx::BrowserBridgeOptions pending_options = options;
+    pending_options.wait_timeout = std::chrono::seconds(2);
+    ::setenv("CFX_API_BASE", pending_api.base_url().c_str(), 1);
+    ::setenv("CFX_TEST_CONNECTOR_MODE", "success", 1);
+    const cfx::BrowserSubmitReceipt pending =
+        cfx::submit_in_browser(request, pending_options);
+    pending_api.wait();
+    check(pending.submission_id == "123456789" && pending.handle == "panicsort" &&
+              pending.verdict.empty() && !pending.pending_reason.empty(),
+          "confirmed submission identity survives a verdict polling timeout");
+
     SubmissionApiServer api({
         R"({"status":"OK","result":[]})",
         R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
         R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}]},"verdict":"TESTING"}]})",
+        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
+        R"("verdict":"TESTING"}]})",
         R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
         R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}]},)"
+        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
         R"("verdict":"TIME_LIMIT_EXCEEDED","testset":"TESTS","passedTestCount":2,)"
         R"("timeConsumedMillis":1000,"memoryConsumedBytes":204800}]})",
     });
@@ -633,6 +706,8 @@ void test_browser_submission_states() {
     const cfx::BrowserSubmitReceipt tle = cfx::submit_in_browser(request, options);
     api.wait();
     check(tle.submission_id == "123456789" && tle.verdict == "TIME_LIMIT_EXCEEDED" &&
+              tle.handle == "panicsort" && tle.participant_type == "CONTESTANT" &&
+              tle.testset == "TESTS" && tle.pending_reason.empty() &&
               tle.verdict_text == "Time Limit Exceeded" && tle.passed_test_count == 2 &&
               tle.time_consumed_millis == 1000 && tle.memory_consumed_bytes == 204800 &&
               tle.judging_wait_millis >= 2000 && tle.judging_wait_millis < 8000,
@@ -692,6 +767,7 @@ int main(int argc, char** argv) {
         TemporaryDirectory temporary;
         test_json_and_codeforces();
         test_codeforces_poll_interval();
+        test_codeforces_status_pagination();
         test_process_and_normalization(temporary.path(), argv[0]);
         test_build_cache(temporary.path() / "build");
         test_companion_import(temporary.path() / "companion");

@@ -56,6 +56,7 @@ browser_environment=(
     "CFX_TEST_PROBLEM_PACKAGE=$fixtures/browser-package.json"
     "CFX_TEST_SUBMISSION_PAYLOAD=$submission_payload"
     "CFX_CHROME_EXTENSION_ID=$extension_id"
+    "CFX_TEST_EXPECT_PAGE_URL=https://codeforces.com/contest/99993/submit"
 )
 
 start_output=$(
@@ -99,6 +100,7 @@ grep -q 'Checked build passed' <<<"$submit_output"
 grep -q "Submitted 99993C as $language" <<<"$submit_output"
 grep -q 'Submission: 123456789' <<<"$submit_output"
 grep -q 'URL: https://codeforces.com/contest/99993/submission/123456789' <<<"$submit_output"
+grep -q 'Participation: PRACTICE' <<<"$submit_output"
 grep -q 'Verdict: Accepted' <<<"$submit_output"
 grep -q 'Tests passed: 20' <<<"$submit_output"
 grep -q 'Time: 46 ms' <<<"$submit_output"
@@ -115,6 +117,10 @@ grep -q '^Solve Codeforces 99993C — Browser bridge problem$' \
 git -C "$sandbox" log -1 --format=%B | grep -q '^Codeforces-Submission: 123456789$'
 test -f "$problem_dir/submissions/123456789.cpp"
 test -f "$state/receipts/99993C/123456789/receipt.json"
+grep -q '"schemaVersion": 2' "$state/receipts/99993C/123456789/receipt.json"
+grep -q '"participantType": "PRACTICE"' "$state/receipts/99993C/123456789/receipt.json"
+grep -q '"testset": "TESTS"' "$state/receipts/99993C/123456789/receipt.json"
+grep -q '"state": "accepted"' "$state/receipts/99993C/123456789/receipt.json"
 grep -q '"sourceDigest"' "$state/receipts/99993C/123456789/receipt.json"
 git -C "$sandbox" show --format= --name-only HEAD | grep -q '^codeforces/99993/C/solution.cpp$'
 git -C "$sandbox" show --format= --name-only HEAD | \

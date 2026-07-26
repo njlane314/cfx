@@ -40,8 +40,14 @@ function apiResponse(result) {
   };
 }
 
-function formDocument(onSubmit = () => {}, signedOut = false) {
-  const problem = {value: "", dispatchEvent() {}};
+function formDocument(onSubmit = () => {}, signedOut = false, contest = "") {
+  const problem = {
+    value: "",
+    options: [{value: "A"}],
+    dispatchEvent() {}
+  };
+  const problemField = contest ? "submittedProblemIndex" : "submittedProblemCode";
+  const action = contest ? `/contest/${contest}/submit` : "/problemset/submit";
   const language = {
     value: "",
     options: [{disabled: false, textContent: "GNU G++20 13.2", value: "89"}],
@@ -53,7 +59,7 @@ function formDocument(onSubmit = () => {}, signedOut = false) {
   const form = {
     method: "post",
     querySelector(selector) {
-      if (selector === '[name="submittedProblemCode"]') return problem;
+      if (selector === `[name="${problemField}"]`) return problem;
       if (selector === '[name="programTypeId"]') return language;
       if (selector === '[name="source"]') return source;
       if (selector === '[name="csrf_token"]') return csrf;
@@ -62,7 +68,7 @@ function formDocument(onSubmit = () => {}, signedOut = false) {
       if (selector === 'button[type="submit"], input[type="submit"]') return submitter;
       return null;
     },
-    getAttribute(name) { return name === "action" ? "/problemset/submit" : null; },
+    getAttribute(name) { return name === "action" ? action : null; },
     requestSubmit(value) { onSubmit(value); }
   };
   const status = {style: {}, textContent: ""};
@@ -120,8 +126,8 @@ async function submitFlowTest() {
   const document = formDocument(() => {
     assert.equal(saved, true, "pending state must be saved before requestSubmit");
     submitted = true;
-  });
-  const location = locationFor("/problemset/submit");
+  }, false, "71");
+  const location = locationFor("/contest/71/submit");
   const connector = createConnector(environment({
     document,
     location,

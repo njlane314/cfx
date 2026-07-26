@@ -35,8 +35,8 @@ cd solutions
 git config cfx.record commit
 ```
 
-The archive name, path, and remote are arbitrary. The Git setting enables one
-local commit per confirmed Accepted verdict.
+The archive name, path, and remote are arbitrary. `cfx.record=commit` is
+required for local acceptance commits.
 
 ## CHROME SETUP
 
@@ -70,14 +70,27 @@ From the solution archive:
 cfx 71A
 # edit solution.cpp
 cfx submit
+
+# after final judging
+cfx sync 71
 git push
 ```
 
 `cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
 `solution.cpp`, and remembers the problem. `cfx submit` tests and
-checked-compiles the exact bundled source, submits it through Chrome, and waits
-for the verdict. The final command requires a configured Git remote; `cfx`
-never pushes.
+checked-compiles the exact bundled source, submits it with the contest form in
+Chrome, and waits for the verdict. Only `OK` on `TESTS` is archived as
+Accepted. With `cfx.record=commit`, it is committed immediately. `PRETESTS` and
+known pending submissions preserve their exact source and receipt in external
+state.
+
+After final judging, `cfx sync [CONTEST|PROBLEM]` reconciles the saved submission
+IDs. A numeric contest is the ID in `/contest/<id>/`, not the displayed round
+number. Sync is idempotent, never resubmits, and requires `cfx.record=commit` to
+make narrow local commits. Submit and sync return 0 on success, 1 for a final
+non-Accepted verdict, and 2 while pending, requiring manual completion, or
+failing operationally. Never push a public solution archive during a round;
+`cfx` never pushes.
 
 ## FILES
 

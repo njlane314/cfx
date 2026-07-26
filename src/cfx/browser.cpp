@@ -769,6 +769,28 @@ std::string confirmed_submission_url(std::string_view contest, std::string_view 
            std::string(submission_id);
 }
 
+std::string concise_pending_reason(std::string_view value) {
+    constexpr std::size_t limit = 240;
+    std::string result;
+    result.reserve(std::min(value.size(), limit));
+    bool separator = false;
+    for (const unsigned char character : value) {
+        if (std::isspace(character) != 0 || std::iscntrl(character) != 0) {
+            separator = !result.empty();
+            continue;
+        }
+        if (separator && result.size() < limit) {
+            result.push_back(' ');
+        }
+        separator = false;
+        if (result.size() >= limit) {
+            break;
+        }
+        result.push_back(static_cast<char>(character));
+    }
+    return result.empty() ? "verdict unavailable" : result;
+}
+
 } // namespace
 
 void open_browser_url(const std::string& url) {
@@ -834,39 +856,59 @@ BrowserSubmitReceipt submit_in_browser(const BrowserSubmitRequest& request,
         throw std::runtime_error("Codeforces submission failed: " + completion.error);
     }
 
+    const auto judging_wait = [&] {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started);
+        std::uint64_t result =
+            static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed.count()));
+        const auto wall_now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
+        if (completion.identity.submitted_at_millis > 0 &&
+            completion.identity.submitted_at_millis <= static_cast<std::uint64_t>(wall_now) &&
+            completion.identity.submitted_at_millis + 5000 >=
+                static_cast<std::uint64_t>(wall_started)) {
+            result = static_cast<std::uint64_t>(wall_now) -
+                     completion.identity.submitted_at_millis;
+        }
+        return result;
+    };
+
     CodeforcesSubmission status;
     try {
         status = poll_submission_status(contest, request.index, completion.identity.handle,
                                         completion.identity.id, deadline,
                                         options.verdict_poll_interval);
     } catch (const std::exception& error) {
-        throw std::runtime_error("submission status is unknown: " + std::string(error.what()) +
-                                 "; submission " + completion.identity.id + "; " + url);
+        return BrowserSubmitReceipt{
+            .submission_url = url,
+            .submission_id = completion.identity.id,
+            .verdict = {},
+            .verdict_text = {},
+            .handle = completion.identity.handle,
+            .participant_type = {},
+            .testset = {},
+            .pending_reason = concise_pending_reason(error.what()),
+            .passed_test_count = 0,
+            .time_consumed_millis = 0,
+            .memory_consumed_bytes = 0,
+            .judging_wait_millis = judging_wait(),
+        };
     }
 
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - started);
-    std::uint64_t judging_wait =
-        static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed.count()));
-    const auto wall_now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-    if (completion.identity.submitted_at_millis > 0 &&
-        completion.identity.submitted_at_millis <= static_cast<std::uint64_t>(wall_now) &&
-        completion.identity.submitted_at_millis + 5000 >=
-            static_cast<std::uint64_t>(wall_started)) {
-        judging_wait = static_cast<std::uint64_t>(wall_now) -
-                       completion.identity.submitted_at_millis;
-    }
     return BrowserSubmitReceipt{
-        url,
-        completion.identity.id,
-        status.verdict,
-        status.verdict_text,
-        status.passed_test_count,
-        status.time_consumed_millis,
-        status.memory_consumed_bytes,
-        judging_wait,
+        .submission_url = url,
+        .submission_id = completion.identity.id,
+        .verdict = status.verdict,
+        .verdict_text = status.verdict_text,
+        .handle = status.handle,
+        .participant_type = status.participant_type,
+        .testset = status.testset,
+        .pending_reason = {},
+        .passed_test_count = status.passed_test_count,
+        .time_consumed_millis = status.time_consumed_millis,
+        .memory_consumed_bytes = status.memory_consumed_bytes,
+        .judging_wait_millis = judging_wait(),
     };
 }
 

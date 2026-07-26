@@ -20,6 +20,12 @@ cfx \- the small, auditable, two-command Codeforces workflow
 .B cfx
 .RB [ \-\-root
 .IR directory ]
+.B sync
+.RI [ contest | problem ]
+.br
+.B cfx
+.RB [ \-\-root
+.IR directory ]
 .B test
 .RI [ options ]
 .RI [ problem ]
@@ -62,7 +68,7 @@ cfx \- the small, auditable, two-command Codeforces workflow
 .SH DESCRIPTION
 .B cfx
 manages an ordinary C++20 Codeforces solution archive.
-The normal workflow consists of two commands:
+The in-contest workflow is:
 .PP
 .nf
 cfx 71A
@@ -73,7 +79,11 @@ The first command imports the problem, samples, and limits; creates its archive
 directory; and opens
 .IR solution.cpp .
 The second tests and checked-compiles the exact bundled source, submits it
-through the signed-in browser, and waits for the Codeforces verdict.
+with the contest form in the signed-in browser, and waits for the Codeforces
+verdict.
+After final judging,
+.B cfx sync
+reconciles the saved submissions before the archive is published.
 .SH COMMANDS
 .TP
 .I problem
@@ -131,11 +141,35 @@ Run every saved test, build the submission profile, checked-compile the exact
 bundled source, and submit it through Chrome.
 Wait for judging and report the verdict, tests passed, execution time, and
 memory consumption.
+Only an
+.B OK
+verdict on
+.B TESTS
+is archived as Accepted.
 When the archive has
 .B git config cfx.record commit
-set, an Accepted verdict creates one local commit. It never pushes.
+set, that acceptance creates one local commit.
+A
+.B PRETESTS
+verdict or known pending submission preserves its exact source and receipt in
+external state and exits 2; a final non-Accepted verdict exits 1.
 No Codeforces password or session cookie is read or stored by
-.BR cfx .
+.BR cfx ,
+which never pushes.
+.TP
+.BR sync " [" contest | problem "]"
+Recheck exact saved submission IDs after final judging.
+Repeated runs are safe and no solution is resubmitted.
+With
+.B git config cfx.record commit
+set, only
+.B OK
+on
+.B TESTS
+creates a narrow local commit.
+Without an argument, reconcile every saved submission.
+.B cfx
+never pushes; do not publish a solution archive during a round.
 .TP
 .BR help " [" command "]"
 Display general help or help for one command.
@@ -238,6 +272,9 @@ When run beneath
 commands infer the problem automatically.
 .B submit
 may also use the most recently opened problem.
+A numeric contest argument is the ID in
+.IR /contest/id/ ,
+not the displayed round number.
 .SH FILES
 .TP
 .I codeforces/contest/index/solution.cpp
@@ -268,7 +305,7 @@ and
 .TP
 .I $XDG_STATE_HOME/cfx/workspaces/
 Fetched samples, build cache, stress failures, current-problem state, exact
-submission artifacts, and acceptance receipts. When
+submission artifacts, and pending and final receipts. When
 .B XDG_STATE_HOME
 is unset, cfx uses
 .IR $HOME/.local/state/cfx/workspaces/ .
@@ -313,21 +350,34 @@ Clipboard command override.
 The operation succeeded.
 For
 .BR submit ,
-the verdict was Accepted.
+the verdict was
+.B OK
+on
+.BR TESTS .
+For
+.BR sync ,
+no selected submission remains pending or has a final non-Accepted verdict.
 .TP
 .B 1
-Tests or stress checking failed, or submission completed with a non-Accepted
-verdict.
+Tests or stress checking failed, or submit or sync reported a final
+non-Accepted verdict.
 .TP
 .B 2
-Usage was invalid, an operational error occurred, or submission requires
-manual completion.
+Usage was invalid, an operational error occurred, or submission or
+reconciliation remains pending or requires manual completion.
 .SH EXAMPLES
 Fetch and solve a problem:
 .PP
 .nf
 cfx 71A
 cfx submit
+.fi
+.PP
+After final judging, record confirmed acceptances and publish explicitly:
+.PP
+.nf
+cfx sync 71
+git push
 .fi
 .PP
 Run sanitizer-backed tests:

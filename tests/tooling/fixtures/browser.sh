@@ -28,6 +28,12 @@ base=http://127.0.0.1:$port
 extension_id=${CFX_CHROME_EXTENSION_ID:?}
 origin=chrome-extension://$extension_id
 
+if [[ $action == submit && -n ${CFX_TEST_EXPECT_PAGE_URL:-} &&
+      ${page_url%%\?*} != "$CFX_TEST_EXPECT_PAGE_URL" ]]; then
+    echo "browser opened ${page_url%%\?*}, expected $CFX_TEST_EXPECT_PAGE_URL" >&2
+    exit 1
+fi
+
 printf '%s\n' "$action" >>"$CFX_TEST_BROWSER_LOG"
 
 status() {

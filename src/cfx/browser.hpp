@@ -26,6 +26,10 @@ struct BrowserSubmitReceipt {
     std::string submission_id;
     std::string verdict;
     std::string verdict_text;
+    std::string handle;
+    std::string participant_type;
+    std::string testset;
+    std::string pending_reason;
     std::uint64_t passed_test_count = 0;
     std::uint64_t time_consumed_millis = 0;
     std::uint64_t memory_consumed_bytes = 0;

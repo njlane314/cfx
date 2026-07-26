@@ -1,1 +1,1 @@
-{"status":"OK","result":[{"id":123456789,"contestId":99993,"problem":{"contestId":99993,"index":"C"},"author":{"members":[{"handle":"panicsort"}]},"verdict":"OK","testset":"TESTS","passedTestCount":20,"timeConsumedMillis":46,"memoryConsumedBytes":102400}]}
+{"status":"OK","result":[{"id":123456789,"contestId":99993,"problem":{"contestId":99993,"index":"C"},"author":{"members":[{"handle":"panicsort"}],"participantType":"PRACTICE"},"verdict":"OK","testset":"TESTS","passedTestCount":20,"timeConsumedMillis":46,"memoryConsumedBytes":102400}]}
