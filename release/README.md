@@ -1,8 +1,40 @@
 # Releases
 
-A `vX.Y.Z` tag builds four native archives: macOS and Linux on arm64 and
-x86_64. It also rebuilds the polished demonstration as
-`cfx-X.Y.Z-demo-20s.mp4`. Each native archive has the same small layout:
+## PUBLISH
+
+Release from a clean `main` checkout:
+
+```sh
+version=1.0.0
+make verify
+bash release/test.sh
+git tag -s "v$version"
+git push origin "v$version"
+```
+
+Before tagging, match `src/browser/manifest.json` to the tag and complete the
+Chrome Web Store checklist in `src/browser/STORE.md`.
+
+Confirm the native, metadata, demo, publication, and optional Homebrew jobs.
+Enable immutable releases in the repository settings, then run:
+
+```sh
+gh release verify v1.0.0
+```
+
+## OUTPUT
+
+A `vX.Y.Z` tag produces:
+
+```text
+cfx-X.Y.Z-{macos,linux}-{arm64,x86_64}.tar.gz
+cfx-X.Y.Z-source.tar.gz
+cfx-connector-X.Y.Z.zip
+cfx-X.Y.Z-demo-20s.mp4
+SHA256SUMS
+```
+
+Native archives contain:
 
 ```text
 bin/cfx
@@ -14,72 +46,63 @@ share/cfx/browser/extension-id
 LICENSE
 ```
 
-`bin/cfx` sets `CFX_ASSET_ROOT` to `share/cfx` and executes the native binary.
-The writable solution archive remains the current project (or `CFX_ROOT` when
-set). Runtime state is kept outside that archive.
+`bin/cfx` sets `CFX_ASSET_ROOT` and runs `libexec/cfx`. Solutions and runtime
+state remain outside the installation.
 
-## Signing and verification
+## VERIFY
 
-Every archive, the source archive, connector ZIP, demonstration, and checksum
-manifest receives GitHub's Sigstore-backed, cryptographically signed
-build-provenance attestation. The demonstration is rebuilt on macOS from the
-checked-in capture and renderer. A separate `ffprobe` gate requires a duration
-of exactly `20.000000` seconds, `1920x1080` dimensions, and exactly one video
-stream with no audio. When native Apple signing is enabled, the workflow also
-signs macOS executables with a Developer ID Application certificate, enables
-the hardened runtime, and submits them to Apple's notary service.
-
-After downloading an archive, verify both its digest and provenance:
+From a download directory within the checkout:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-gh attestation verify cfx-1.2.3-macos-arm64.tar.gz \
-  --repo njlane314/cfx
+repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+gh attestation verify cfx-1.2.3-macos-arm64.tar.gz --repo "$repo"
 ```
 
-On macOS, the native signature can be inspected after extraction:
+Every artifact has GitHub build provenance. The demo gate requires exactly
+20 seconds, 1920x1080, one video stream, and no audio.
+
+For an Apple-signed archive:
 
 ```sh
-codesign --verify --strict --verbose=2 cfx-1.2.3-macos-arm64/libexec/cfx
+codesign --verify --strict --verbose=2 \
+  cfx-1.2.3-macos-arm64/libexec/cfx
 codesign -dv --verbose=4 cfx-1.2.3-macos-arm64/libexec/cfx
 ```
 
-## Homebrew
+## SIGNING
 
-The public formula lives in the conventional `njlane314/homebrew-cfx` tap. The
-tag workflow renders it with the release source checksum, runs its
-style and installation tests on macOS, then advances `Formula/cfx.rb` in that
-tap. The copy in this repository is the head-development formula; maintainers
-can test it with `brew install --HEAD ./release/cfx.rb`.
+Apple signing and notarisation are optional:
 
-## Maintainer release
+```text
+APPLE_CODESIGN_ENABLED=true
+APPLE_CERTIFICATE_P12_BASE64
+APPLE_CERTIFICATE_PASSWORD
+APPLE_SIGNING_IDENTITY
+APPLE_NOTARY_APPLE_ID
+APPLE_NOTARY_TEAM_ID
+APPLE_NOTARY_PASSWORD
+```
 
-1. Confirm `make verify` and `bash release/test.sh` pass on `main`.
-2. Confirm the Chrome Web Store release is ready and its manifest version is
-   final.
-3. Create and push an annotated semantic-version tag, for example
-   `git tag -s v1.0.0 && git push origin v1.0.0`.
-4. Confirm all four native builds and the independently probed demo job pass,
-   then confirm the GitHub Release, its attestations, and the formula
-   publication job succeed.
-5. Enable immutable releases in the repository settings, then verify with
-   `gh release verify v1.0.0`.
+The certificate is a PKCS#12 Developer ID Application bundle;
+`APPLE_NOTARY_PASSWORD` is an app-specific password. GitHub provenance needs
+no long-lived Linux signing key.
 
-Native Apple signing is optional because every artifact always has signed
-GitHub provenance. Enable it with the repository variable
-`APPLE_CODESIGN_ENABLED=true`; its macOS jobs then require these secrets:
+## HOMEBREW
 
-- `APPLE_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
-  certificate and private key in PKCS#12 format.
-- `APPLE_CERTIFICATE_PASSWORD`: password for that PKCS#12 file.
-- `APPLE_SIGNING_IDENTITY`: exact Developer ID Application identity.
-- `APPLE_NOTARY_APPLE_ID`, `APPLE_NOTARY_TEAM_ID`, and
-  `APPLE_NOTARY_PASSWORD`: Apple notary-service credentials; the password is an
-  app-specific password.
+Test the development formula:
 
-Formula publication requires a public `njlane314/homebrew-cfx` repository,
-the repository variable `HOMEBREW_TAP_ENABLED=true`, and
-`HOMEBREW_TAP_TOKEN`, a fine-grained token with Contents read/write permission
-for that repository. Until configured, formula publication is skipped without
-blocking signed release provenance. GitHub supplies the cfx release token and
-OIDC identity. No long-lived Linux signing key is needed.
+```sh
+brew install --HEAD ./release/cfx.rb
+```
+
+Tagged publication requires:
+
+```text
+HOMEBREW_TAP_ENABLED=true
+HOMEBREW_TAP_TOKEN
+```
+
+The token needs Contents read/write permission for the public tap. The workflow
+binds the formula to the source checksum, tests it on macOS, and updates
+`Formula/cfx.rb`. Disabled formula publication does not block the release.
