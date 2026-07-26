@@ -57,11 +57,11 @@ jobs:
           APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
           APPLE_NOTARY_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
           APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
-        run: scripts/release/sign-macos.sh .build/tools/cfx
+        run: release/sign-macos.sh .build/tools/cfx
 
       - name: Package
         run: >-
-          scripts/release/package.sh
+          release/package.sh
           "${{ steps.version.outputs.value }}"
           "${{ matrix.platform }}"
           "${{ matrix.architecture }}"
@@ -103,10 +103,10 @@ jobs:
         run: |
           version=${{ steps.version.outputs.value }}
           manifest_version=$(node -p \
-            'JSON.parse(require("node:fs").readFileSync("browser/manifest.json", "utf8")).version')
+            'JSON.parse(require("node:fs").readFileSync("src/browser/manifest.json", "utf8")).version')
           [[ $manifest_version == "$version" ]]
-          scripts/release/source-archive.sh "$version"
-          browser_archive=$(browser/package.sh)
+          release/source-archive.sh "$version"
+          browser_archive=$(src/browser/package.sh)
           [[ $(basename "$browser_archive") == "cfx-connector-$version.zip" ]]
           cp "$browser_archive" .build/release/
 
@@ -148,7 +148,7 @@ jobs:
       - name: Build demo
         shell: bash
         run: |
-          browser/demo/build.sh .build/browser/store
+          src/browser/demo/build.sh .build/browser/store
           mkdir -p .build/release
           install -m 0644 .build/browser/store/demo-20s.mp4 \
             ".build/release/cfx-${{ steps.version.outputs.value }}-demo-20s.mp4"
@@ -223,7 +223,7 @@ jobs:
           )
           for archive in "${expected[@]}"; do [[ -f $archive ]]; done
           [[ $(find . -maxdepth 1 -type f | wc -l | tr -d ' ') -eq 7 ]]
-          ../../scripts/release/checksums.sh "${expected[@]}" >SHA256SUMS
+          ../../release/checksums.sh "${expected[@]}" >SHA256SUMS
           source_sha=$(awk -v file="cfx-$version-source.tar.gz" '$2 == file { print $1 }' SHA256SUMS)
           [[ $source_sha =~ ^[0-9a-f]{64}$ ]]
           echo "source_sha256=$source_sha" >>"$GITHUB_OUTPUT"
@@ -259,7 +259,7 @@ jobs:
       - name: Render formula
         shell: bash
         run: |
-          scripts/release/render-formula.sh \
+          release/render-formula.sh \
             "${{ needs.publish.outputs.version }}" \
             "${{ needs.publish.outputs.source_sha256 }}" \
             >"$RUNNER_TEMP/cfx.rb"

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script=$0
+while [[ -L $script ]]; do
+    directory=$(cd -P "$(dirname "$script")" >/dev/null 2>&1 && pwd)
+    target=$(readlink "$script")
+    [[ $target == /* ]] && script=$target || script=$directory/$target
+done
+root=$(cd -P "$(dirname "$script")" >/dev/null 2>&1 && pwd)
+
+if [[ -n ${CFX_CXX:-} ]]; then
+    compiler=$CFX_CXX
+elif [[ -n ${CXX:-} ]]; then
+    compiler=$CXX
+elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
+    compiler=/opt/homebrew/opt/llvm/bin/clang++
+elif [[ -x /usr/local/opt/llvm/bin/clang++ ]]; then
+    compiler=/usr/local/opt/llvm/bin/clang++
+else
+    compiler=c++
+fi
+
+export CXX=$compiler
+export CFX_STD=${CFX_STD:-c++20}
+export CFX_ASSET_ROOT=${CFX_ASSET_ROOT:-$root/assets}
+
+make --no-print-directory -s -C "$root" build
+exec "$root/.build/tools/cfx" "$@"

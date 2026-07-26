@@ -3,13 +3,14 @@ BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/share/man
 MAN1DIR ?= $(MANDIR)/man1
 
-CFX := ./bin/cfx
+CFX := ./cfx
 CFX_PATH := $(abspath $(CFX))
-MANPAGE := man/cfx.1
+LEGACY_CFX_PATH := $(abspath ./bin/cfx)
+MANPAGE := release/cfx.1
 TEST_RUNNER := tests/run.sh
 TEST_SCRIPTS := $(shell find tests -type f -name '*.sh' -print)
-RELEASE_SCRIPTS := $(shell find scripts/release -type f -name '*.sh' -print)
-BROWSER_SCRIPTS := $(shell find browser -type f -name '*.sh' -print)
+RELEASE_SCRIPTS := $(shell find release -type f -name '*.sh' -print)
+BROWSER_SCRIPTS := $(shell find src/browser -type f -name '*.sh' -print)
 
 ifeq ($(origin CXX),default)
 ifneq ($(wildcard /opt/homebrew/opt/llvm/bin/clang++),)
@@ -26,10 +27,10 @@ CFX_STD ?= c++20
 TOOL_BUILD_DIR := .build/tools
 TOOL_BINARY := $(TOOL_BUILD_DIR)/cfx
 TOOL_CONFIG := $(TOOL_BUILD_DIR)/cfx.config
-TOOL_SOURCES := $(wildcard tools/cfx/*.cpp)
-TOOL_OBJECTS := $(patsubst tools/cfx/%.cpp,$(TOOL_BUILD_DIR)/%.o,$(TOOL_SOURCES))
+TOOL_SOURCES := $(wildcard src/cfx/*.cpp)
+TOOL_OBJECTS := $(patsubst src/cfx/%.cpp,$(TOOL_BUILD_DIR)/%.o,$(TOOL_SOURCES))
 TOOL_DEPENDENCIES := $(TOOL_OBJECTS:.o=.d)
-TOOL_CPPFLAGS := -Iinclude -Itools -Itools/cfx
+TOOL_CPPFLAGS := -Isrc
 TOOL_CXXFLAGS := -std=$(CFX_STD) -Wall -Wextra -Wpedantic -pthread
 
 .DEFAULT_GOAL := help
@@ -69,7 +70,7 @@ $(TOOL_CONFIG): FORCE
 		mv $(TOOL_CONFIG).tmp $(TOOL_CONFIG); \
 	fi
 
-$(TOOL_BUILD_DIR)/%.o: tools/cfx/%.cpp $(TOOL_CONFIG)
+$(TOOL_BUILD_DIR)/%.o: src/cfx/%.cpp $(TOOL_CONFIG)
 	@mkdir -p $(@D)
 	@echo '  CXX  $<'
 	@$(CXX) $(CPPFLAGS) $(TOOL_CPPFLAGS) $(CXXFLAGS) $(TOOL_CXXFLAGS) \
@@ -88,19 +89,19 @@ test: build
 lint:
 	bash -n $(CFX) $(TEST_SCRIPTS) $(RELEASE_SCRIPTS) $(BROWSER_SCRIPTS)
 	@if command -v node >/dev/null 2>&1; then \
-		for script in browser/*.js; do node --check "$$script"; done; \
-		node -e 'JSON.parse(require("node:fs").readFileSync("browser/manifest.json", "utf8"))'; \
+		for script in src/browser/*.js; do node --check "$$script"; done; \
+		node -e 'JSON.parse(require("node:fs").readFileSync("src/browser/manifest.json", "utf8"))'; \
 	fi
 	@if command -v mandoc >/dev/null 2>&1; then mandoc -T lint $(MANPAGE); fi
 	$(CFX) --help >/dev/null
 
 release-check: build
-	bash scripts/release/test.sh
+	bash release/test.sh
 
 verify: test lint release-check
 
 browser-package:
-	bash browser/package.sh
+	bash src/browser/package.sh
 
 install:
 	@test -x "$(CFX_PATH)" || { echo 'missing executable: $(CFX_PATH)' >&2; exit 1; }
@@ -108,7 +109,8 @@ install:
 	mkdir -p "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MAN1DIR)"
 	@dst="$(DESTDIR)$(BINDIR)/cfx"; \
 	target=$$(readlink "$$dst" 2>/dev/null || true); \
-	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && [ "$$target" != "$(CFX_PATH)" ]; then \
+	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && \
+		[ "$$target" != "$(CFX_PATH)" ] && [ "$$target" != "$(LEGACY_CFX_PATH)" ]; then \
 		echo "refusing to overwrite: $$dst" >&2; \
 		exit 1; \
 	fi; \

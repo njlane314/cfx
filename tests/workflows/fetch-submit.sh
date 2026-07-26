@@ -23,9 +23,19 @@ wait_for_log() {
 }
 
 sandbox=$build_dir/workspace
+state=$build_dir/state
 mkdir -p "$sandbox/templates" "$sandbox/include"
-cp "$repo_root/templates/solution.cpp" "$sandbox/templates/solution.cpp"
-cp -R "$repo_root/include/cp" "$sandbox/include/cp"
+cp "$repo_root/assets/templates/solution.cpp" "$sandbox/templates/solution.cpp"
+cp -R "$repo_root/assets/include/cp" "$sandbox/include/cp"
+export CFX_STATE_ROOT=$state
+
+git -C "$sandbox" init -q -b main
+git -C "$sandbox" config user.name 'cfx tests'
+git -C "$sandbox" config user.email 'cfx@example.invalid'
+git -C "$sandbox" config cfx.record commit
+printf '# fixture\n' >"$sandbox/README.md"
+git -C "$sandbox" add README.md
+git -C "$sandbox" commit -q -m 'Initialise fixture archive'
 
 browser_log=$build_dir/browser.log
 editor_log=$build_dir/editor.log
@@ -53,35 +63,36 @@ start_output=$(
         "${browser_environment[@]}" \
         "CFX_TEST_EDITOR_LOG=$editor_log" \
         "EDITOR=$fixtures/editor.sh" \
-        "$repo_root/bin/cfx" --root "$sandbox" 99993C
+        "$repo_root/cfx" --root "$sandbox" 99993C
 )
 grep -q 'Fetched 99993C — Browser bridge problem' <<<"$start_output"
 grep -q 'Imported 2 samples' <<<"$start_output"
-grep -q 'Opened problems/cf/99993/C/solution.cpp' <<<"$start_output"
-problem_dir=$sandbox/problems/cf/99993/C
+grep -q 'Opened codeforces/99993/C/solution.cpp' <<<"$start_output"
+problem_dir=$sandbox/codeforces/99993/C
+sample_dir=$state/codeforces/99993/C/samples
 test -f "$problem_dir/problem.json"
-test -f "$problem_dir/samples/01.in"
-test -f "$problem_dir/samples/02.out"
+test -f "$sample_dir/01.in"
+test -f "$sample_dir/02.out"
 grep -q "$problem_dir/solution.cpp" "$editor_log"
 grep -q '^fetch$' "$browser_log"
-grep -qx '99993C' "$sandbox/.cfx/current-problem"
+grep -qx '99993C' "$state/current-problem"
 
 cp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
-cp "$fixtures/10.in" "$problem_dir/samples/01.in"
+cp "$fixtures/10.in" "$sample_dir/01.in"
 env \
     "${browser_environment[@]}" \
     "CFX_TEST_EDITOR_LOG=$editor_log" \
     "EDITOR=$fixtures/editor.sh" \
-    "$repo_root/bin/cfx" --root "$sandbox" 99993C >/dev/null
+    "$repo_root/cfx" --root "$sandbox" 99993C >/dev/null
 cmp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
-cmp "$fixtures/02.in" "$problem_dir/samples/01.in"
+cmp "$fixtures/02.in" "$sample_dir/01.in"
 
 submit_output=$(
     cd "$sandbox"
     env \
         "${browser_environment[@]}" \
         "CFX_API_BASE=file://$fixtures/api-ok" \
-        "$repo_root/bin/cfx" --root "$sandbox" submit
+        "$repo_root/cfx" --root "$sandbox" submit
 )
 grep -q '2/2 tests passed' <<<"$submit_output"
 grep -q 'Checked build passed' <<<"$submit_output"
@@ -93,18 +104,28 @@ grep -q 'Tests passed: 20' <<<"$submit_output"
 grep -q 'Time: 46 ms' <<<"$submit_output"
 grep -q 'Memory: 100.0KiB' <<<"$submit_output"
 grep -Eq '^Judging wait: [0-9]+\.[0-9]{3}s$' <<<"$submit_output"
+grep -q 'Recorded: 99993C' <<<"$submit_output"
 grep -q '"target":"99993C"' "$submission_payload"
 grep -q "\"language\":\"$language\"" "$submission_payload"
 grep -q '"source":' "$submission_payload"
 grep -q '#include' "$submission_payload"
 grep -q '^submit$' "$browser_log"
+grep -q '^Solve Codeforces 99993C — Browser bridge problem$' \
+    < <(git -C "$sandbox" log -1 --format=%s)
+git -C "$sandbox" log -1 --format=%B | grep -q '^Codeforces-Submission: 123456789$'
+test -f "$problem_dir/submissions/123456789.cpp"
+test -f "$state/receipts/99993C/123456789/receipt.json"
+grep -q '"sourceDigest"' "$state/receipts/99993C/123456789/receipt.json"
+git -C "$sandbox" show --format= --name-only HEAD | grep -q '^codeforces/99993/C/solution.cpp$'
+git -C "$sandbox" show --format= --name-only HEAD | \
+    grep -q '^codeforces/99993/C/submissions/123456789.cpp$'
 
 if tle_output=$(
     cd "$sandbox"
     env \
         "${browser_environment[@]}" \
         "CFX_API_BASE=file://$fixtures/api-tle" \
-        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
+        "$repo_root/cfx" --root "$sandbox" submit 2>&1
 ); then
     echo 'fetch/submit workflow: remote TLE was reported as success' >&2
     exit 1
@@ -119,14 +140,14 @@ grep -q 'Time: 1000 ms' <<<"$tle_output"
 grep -q 'Memory: 200.0KiB' <<<"$tle_output"
 grep -Eq '^Judging wait: [0-9]+\.[0-9]{3}s$' <<<"$tle_output"
 
-"$repo_root/bin/cfx" --root "$sandbox" get 99992A >/dev/null
-conflict_dir=$sandbox/problems/cf/99992/A
+"$repo_root/cfx" --root "$sandbox" get 99992A >/dev/null
+conflict_dir=$sandbox/codeforces/99992/A
 : >"$browser_log"
 if conflict_output=$(
     cd "$conflict_dir"
     env \
         "${browser_environment[@]}" \
-        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
+        "$repo_root/cfx" --root "$sandbox" submit 2>&1
 ); then
     echo 'fetch/submit workflow: conflicting current problems were accepted' >&2
     exit 1
@@ -142,7 +163,7 @@ if manual_output=$(
         "${browser_environment[@]}" \
         "CFX_CLIPBOARD=$fixtures/clipboard.sh" \
         "CFX_TEST_CLIPBOARD=$clipboard_payload" \
-        "$repo_root/bin/cfx" --root "$sandbox" submit --manual 99993C 2>&1
+        "$repo_root/cfx" --root "$sandbox" submit --manual 99993C 2>&1
 ); then
     echo 'fetch/submit workflow: manual handoff was reported as accepted' >&2
     exit 1
@@ -156,7 +177,7 @@ grep -q 'Copied tested bundle .* to the clipboard' <<<"$manual_output"
 grep -q 'Opened Codeforces submission page for 99993C' <<<"$manual_output"
 grep -q "Paste and submit as $language" <<<"$manual_output"
 wait_for_log '^manual$' "$browser_log"
-artifact=$(find "$sandbox/.cfx/submissions" -name '99993C-*.cpp' -print -quit)
+artifact=$(find "$state/submissions/prepared" -name submission.cpp -print -quit)
 cmp "$artifact" "$clipboard_payload"
 
 : >"$browser_log"
@@ -167,7 +188,7 @@ if fallback_output=$(
         "CFX_CLIPBOARD=$fixtures/clipboard.sh" \
         "CFX_TEST_CLIPBOARD=$clipboard_payload" \
         CFX_TEST_SKIP_CONNECTOR=1 \
-        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
+        "$repo_root/cfx" --root "$sandbox" submit 2>&1
 ); then
     echo 'fetch/submit workflow: connector fallback was reported as accepted' >&2
     exit 1
@@ -186,25 +207,27 @@ if (
     cd "$problem_dir"
     env \
         "${browser_environment[@]}" \
-        "$repo_root/bin/cfx" --root "$sandbox" submit
+        "$repo_root/cfx" --root "$sandbox" submit
 ) >/dev/null 2>&1; then
     echo 'fetch/submit workflow: failing source reached the browser' >&2
     exit 1
 fi
 test ! -s "$browser_log"
 
-printf '99990A\n' >"$sandbox/.cfx/current-problem"
+printf '99990A\n' >"$state/current-problem"
 : >"$browser_log"
 if stale_output=$(
     cd "$sandbox"
     env \
         "${browser_environment[@]}" \
-        "$repo_root/bin/cfx" --root "$sandbox" submit 2>&1
+        "$repo_root/cfx" --root "$sandbox" submit 2>&1
 ); then
     echo 'fetch/submit workflow: stale current problem was accepted' >&2
     exit 1
 fi
 grep -q 'current problem 99990A has no solution' <<<"$stale_output"
 test ! -s "$browser_log"
+test ! -e "$sandbox/.build"
+test ! -e "$sandbox/.cfx"
 
 echo 'fetch and submit workflow passed'

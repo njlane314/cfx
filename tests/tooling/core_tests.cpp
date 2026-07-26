@@ -2,6 +2,7 @@
 #include "cfx/bundle.hpp"
 #include "cfx/file.hpp"
 #include "cfx/problem.hpp"
+#include "cfx/runtime.hpp"
 #include "cfx/workspace.hpp"
 
 #include <chrono>
@@ -139,7 +140,7 @@ void test_problem_parsing() {
         cfx::Problem::parse("https://codeforces.com/contest/2227/problem/c?locale=en", root).id() ==
             "2227C",
         "contest URL");
-    require(cfx::Problem::parse("problems/cf/2227/B/solution.cpp", root).id() == "2227B",
+    require(cfx::Problem::parse("codeforces/2227/B/solution.cpp", root).id() == "2227B",
             "workspace path");
     require_problem_error(
         [&] { static_cast<void>(cfx::Problem::parse("solutions/A.71.cpp", root)); });
@@ -153,6 +154,10 @@ void test_problem_paths_and_inference() {
 
     require(problem.solution_path() == problem.directory() / "solution.cpp",
             "canonical solution path");
+    require(problem.metadata_path() == problem.directory() / "problem.json",
+            "canonical metadata path");
+    require(problem.samples_path() == problem.state_directory() / "samples",
+            "fetched samples are external state");
     require(problem.test_directories() ==
                 (std::vector<fs::path>{problem.samples_path(), problem.cases_path()}),
             "canonical test paths");
@@ -161,13 +166,13 @@ void test_problem_paths_and_inference() {
     const auto inferred = cfx::Problem::infer(problem.solution_path(), root);
     require(inferred && inferred->id() == "71A", "problem inferred inside root");
 
-    const fs::path foreign = outside.path() / "problems" / "cf" / "71" / "A";
+    const fs::path foreign = outside.path() / "codeforces" / "71" / "A";
     fs::create_directories(foreign);
     require(!cfx::Problem::infer(foreign, root), "absolute path outside root rejected");
     require(!cfx::Problem::infer(fs::relative(foreign, root), root),
             "relative path escaping root rejected");
 
-    const fs::path link = root / "problems" / "cf" / "72" / "A";
+    const fs::path link = root / "codeforces" / "72" / "A";
     fs::create_directories(link.parent_path());
     fs::create_directory_symlink(foreign, link);
     require(!cfx::Problem::infer(link, root), "symlink escaping root rejected");
@@ -184,6 +189,7 @@ void test_workspace_creation_is_idempotent() {
     require(first.solution_created, "solution created");
     require(read(first.solution) == "// template\n", "template copied");
     require(fs::is_directory(problem.samples_path()), "samples created");
+    require(!fs::exists(root / ".cfx"), "runtime state stays outside archive");
     require(fs::is_directory(problem.cases_path()), "cases created");
     require(fs::is_directory(problem.stress_path()), "stress created");
 
@@ -253,7 +259,8 @@ void test_current_problem_record() {
 
     const auto first = cfx::Problem::parse("2227A", root);
     cfx::remember_current_problem(first, root);
-    require(read(root / ".cfx" / "current-problem") == "2227A\n",
+    const fs::path current = cfx::state_root(root) / "current-problem";
+    require(read(current) == "2227A\n",
             "current problem stored as a small canonical record");
     require(cfx::current_problem(root)->id() == "2227A", "current problem restored");
 
@@ -266,15 +273,15 @@ void test_current_problem_record() {
     fs::remove_all(root / ".build");
     require(cfx::current_problem(root)->id() == "71A", "clean preserves current problem");
 
-    write(root / ".cfx" / "current-problem", "not a problem\n");
+    write(current, "not a problem\n");
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
                             "run cfx PROBLEM again");
 
-    write(root / ".cfx" / "current-problem", "71a\n");
+    write(current, "71a\n");
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
                             "run cfx PROBLEM again");
 
-    write(root / ".cfx" / "current-problem", std::string(65, '1'));
+    write(current, std::string(65, '1'));
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
                             "run cfx PROBLEM again");
 }

@@ -493,6 +493,10 @@ void test_submission_preparation(const fs::path& root) {
     const cfx::SubmissionArtifact artifact = cfx::prepare_submission(root, problem);
     check(fs::is_regular_file(artifact.source), "submission artifact exists");
     check(artifact.source_text == read(artifact.source), "submission carries the pinned source");
+    check(artifact.authored_source_text == read(artifact.authored_source),
+          "submission carries the authored snapshot");
+    check(artifact.authored_source_text == read(problem.solution_path()),
+          "authored snapshot matches the solution");
     check(artifact.target == "88A", "submission target");
     check(artifact.language == "GNU C++20", "submission language");
     check(artifact.page_url == "https://codeforces.com/problemset/submit",
@@ -500,9 +504,9 @@ void test_submission_preparation(const fs::path& root) {
     check(artifact.source_hash.size() == 32, "submission hash");
     check(artifact.source_hash == cfx::content_digest(artifact.source_text),
           "submission hash matches pinned source");
-    check(artifact.source.filename().string().find(artifact.source_hash.substr(0, 16)) !=
-              std::string::npos,
-          "submission artifact name contains hash");
+    check(artifact.source.parent_path().filename().string().find(
+              artifact.source_hash.substr(0, 16)) != std::string::npos,
+          "submission artifact directory contains hash");
 
     const cfx::Problem untested("88", "B", root);
     write(untested.solution_path(), "int main() {}\n");

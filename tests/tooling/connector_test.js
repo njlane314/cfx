@@ -3,10 +3,10 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const samples = require(path.resolve(__dirname, "../../browser/samples.js"));
-const submission = require(path.resolve(__dirname, "../../browser/submission.js"));
+const samples = require(path.resolve(__dirname, "../../src/browser/samples.js"));
+const submission = require(path.resolve(__dirname, "../../src/browser/submission.js"));
 const {createConnector, parseRequest} = require(
-  path.resolve(__dirname, "../../browser/connector.js")
+  path.resolve(__dirname, "../../src/browser/connector.js")
 );
 
 const token = "a".repeat(64);
@@ -360,7 +360,7 @@ async function main() {
   assert.equal(signedOutStatus.requestTimes.length, 0);
 
   const connectorSource = fs.readFileSync(
-    path.resolve(__dirname, "../../browser/connector.js"), "utf8"
+    path.resolve(__dirname, "../../src/browser/connector.js"), "utf8"
   );
   assert.doesNotMatch(connectorSource, /sessionStorage|submissionApiOutcome|passedTestCount/);
   console.log("content connector tests passed");

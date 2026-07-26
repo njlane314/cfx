@@ -1,5 +1,4 @@
 -std=gnu++20
--Iinclude
--Itools
--Itools/cfx
+-Iassets/include
+-Isrc
 -DLOCAL

@@ -37,7 +37,7 @@ global.fetch = async (url, options) => {
   return {status: 200, text: async () => "{\"ok\":true}"};
 };
 
-const background = require(path.resolve(__dirname, "../../browser/background.js"));
+const background = require(path.resolve(__dirname, "../../src/browser/background.js"));
 background.listen();
 assert.equal(typeof listener, "function");
 assert.equal(typeof alarmListener, "function");
@@ -77,7 +77,7 @@ function pending(overrides = {}) {
 
 async function main() {
   const manifest = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, "../../browser/manifest.json"), "utf8")
+    fs.readFileSync(path.resolve(__dirname, "../../src/browser/manifest.json"), "utf8")
   );
   assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
   assert.deepEqual(manifest.content_scripts[0].js, ["samples.js", "submission.js", "connector.js"]);
@@ -93,7 +93,7 @@ async function main() {
     assert.ok(contentScriptMatches.includes(match), `missing content-script match: ${match}`);
   }
   const expectedId = fs
-    .readFileSync(path.resolve(__dirname, "../../browser/extension-id"), "utf8")
+    .readFileSync(path.resolve(__dirname, "../../assets/browser/extension-id"), "utf8")
     .trim();
   const digest = crypto.createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest();
   const derivedId = Array.from(digest.subarray(0, 16), byte =>

@@ -5,7 +5,7 @@ const childProcess = require("node:child_process");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../..");
-const {render} = require(path.join(root, "browser/icon.js"));
+const {render} = require(path.join(root, "src/browser/icon.js"));
 
 function dimensions(png) {
     assert.deepEqual(png.subarray(0, 8), Buffer.from("89504e470d0a1a0a", "hex"));
@@ -18,7 +18,7 @@ for (const size of [16, 32, 48, 128]) {
     assert.deepEqual(render(size), render(size));
 }
 
-const archive = childProcess.execFileSync("bash", [path.join(root, "browser/package.sh")], {
+const archive = childProcess.execFileSync("bash", [path.join(root, "src/browser/package.sh")], {
     cwd: root,
     encoding: "utf8"
 }).trim();

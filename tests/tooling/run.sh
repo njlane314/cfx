@@ -37,24 +37,24 @@ common_flags=(
     -Wpedantic
     -Werror
     -pthread
-    "-I$repo_root/include"
-    "-I$repo_root/tools"
-    "-I$repo_root/tools/cfx"
+    "-I$repo_root/src"
 )
 
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
     "$script_dir/core_tests.cpp" \
-    "$repo_root/tools/cfx/assets.cpp" \
-    "$repo_root/tools/cfx/problem.cpp" \
-    "$repo_root/tools/cfx/workspace.cpp" \
-    "$repo_root/tools/cfx/bundle.cpp" \
-    "$repo_root/tools/cfx/file.cpp" \
+    "$repo_root/src/cfx/assets.cpp" \
+    "$repo_root/src/cfx/problem.cpp" \
+    "$repo_root/src/cfx/runtime.cpp" \
+    "$repo_root/src/cfx/workspace.cpp" \
+    "$repo_root/src/cfx/bundle.cpp" \
+    "$repo_root/src/cfx/file.cpp" \
     -o "$build_dir/core-tests"
-"$build_dir/core-tests"
+CFX_STATE_ROOT="$build_dir/core-state" \
+    "$build_dir/core-tests"
 
 tool_sources=()
-for source in "$repo_root"/tools/cfx/*.cpp; do
+for source in "$repo_root"/src/cfx/*.cpp; do
     [[ $(basename "$source") == main.cpp ]] || tool_sources+=("$source")
 done
 "${compiler_command[@]}" \
@@ -63,6 +63,7 @@ done
     "${tool_sources[@]}" \
     -o "$build_dir/tool-tests"
 CFX_BROWSER="$script_dir/fixtures/browser.sh" \
+CFX_STATE_ROOT="$build_dir/tool-state" \
 CFX_TEST_BROWSER_LOG="$build_dir/browser.log" \
 CFX_TEST_SUBMISSION_PAYLOAD="$build_dir/submission.json" \
 CFX_CHROME_EXTENSION_ID=abcdefghijklmnopabcdefghijklmnop \

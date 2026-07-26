@@ -30,7 +30,7 @@ for source in "$script_dir"/test_*.cpp; do
         -Wextra \
         -Wpedantic \
         -Werror \
-        -I"$repo_root/include" \
+        -I"$repo_root/assets/include" \
         "$source" \
         -o "$build_dir/$name"
     "$build_dir/$name"
@@ -42,8 +42,8 @@ done
     -Wextra \
     -Wpedantic \
     -Werror \
-    -I"$repo_root/include" \
-    "$repo_root/templates/solution.cpp" \
+    -I"$repo_root/assets/include" \
+    "$repo_root/assets/templates/solution.cpp" \
     -o "$build_dir/solution-template"
 
 echo "library tests passed"
