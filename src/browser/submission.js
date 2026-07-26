@@ -156,16 +156,20 @@
     }
 
     const expectedPath = contest ? `/contest/${contest[1]}/submit` : "/problemset/submit";
+    const actionUrl = value => new URL(
+      value || `${location.pathname}${location.search}`, document.baseURI || location.href
+    );
     const validAction = value => {
-      const url = new URL(value || `${location.pathname}${location.search}`, location.origin);
+      const url = actionUrl(value);
       if (
         url.origin !== location.origin || url.username || url.password || url.hash ||
         url.pathname.replace(/\/$/, "") !== expectedPath
       ) {
         throw new Error("Codeforces submission form has an unexpected target");
       }
+      return url;
     };
-    validAction(form.getAttribute("action"));
+    const action = validAction(form.getAttribute("action"));
     if ((form.method || "get").toLowerCase() !== "post") {
       throw new Error("Codeforces submission form has an unexpected method");
     }
@@ -177,9 +181,6 @@
       throw new Error("Codeforces submit control has an unexpected method");
     }
     const csrf = form.querySelector('[name="csrf_token"]');
-    const action = new URL(
-      form.getAttribute("action") || `${location.pathname}${location.search}`, location.origin
-    );
     if (!String(csrf?.value || "").trim() && !action.searchParams.get("csrf_token")) {
       throw new Error("Codeforces submission form has no CSRF token; reload and sign in");
     }

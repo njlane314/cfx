@@ -15,6 +15,14 @@
   "use strict";
 
   const apiInterval = 2100;
+  const challengeDelay = 3000;
+  const problemOrigins = [
+    "https://codeforces.com",
+    "https://m1.codeforces.com",
+    "https://m2.codeforces.com",
+    "https://m3.codeforces.com",
+    "https://mirror.codeforces.com"
+  ];
 
   function parseRequest(rawFragment) {
     const parameters = new URLSearchParams(rawFragment);
@@ -34,6 +42,22 @@
     }
     if (!/^[0-9a-f]{64}$/i.test(token)) throw new Error("invalid connector token");
     return {action, port: Number(port), token: token.toLowerCase()};
+  }
+
+  function problemPage(location) {
+    return /^\/contest\/[0-9]+\/problem\/[^/]+\/?$/i.test(location.pathname);
+  }
+
+  function problemPath(location) {
+    return location.pathname.endsWith("/") ? location.pathname.slice(0, -1) : location.pathname;
+  }
+
+  function nextProblemUrl(location, position = problemOrigins.indexOf(location.origin)) {
+    const next = Math.max(position, problemOrigins.indexOf(location.origin)) + 1;
+    if (!problemPage(location) || next <= 0 || next >= problemOrigins.length) {
+      return "";
+    }
+    return new URL(problemPath(location), problemOrigins[next]).href;
   }
 
   function createConnector(environment) {
@@ -134,14 +158,71 @@
       return result.value;
     }
 
+    async function fetchStateRequest(action, request = {}) {
+      const result = await chrome.runtime.sendMessage({
+        type: "cfx-fetch-state",
+        action,
+        ...(action !== "load" && request.token ? {operation: request.token} : {}),
+        ...(action === "save" ? {
+          value: {port: request.port, pathname: problemPath(location), position: 0}
+        } : {}),
+        ...(action === "advance" ? {position: request.position} : {})
+      });
+      if (!result || result.ok !== true) {
+        throw new Error(result?.error || "Chrome connector fetch state is unavailable");
+      }
+      return result.value;
+    }
+
+    function browserCheck() {
+      const text = `${document.title || ""} ${document.body?.textContent || ""}`;
+      return /just a moment|browser is being checked|checking your browser|enable javascript and cookies/i
+        .test(text);
+    }
+
     async function handleFetch(request) {
       try {
-        const packageValue = samples.extractProblem(document, location);
+        let packageValue;
+        try {
+          packageValue = samples.extractProblem(document, location);
+        } catch (error) {
+          if (messageOf(error) !== "Codeforces problem statement is unavailable" ||
+              !browserCheck()) {
+            throw error;
+          }
+          showStatus("waiting for Codeforces");
+          await delay(challengeDelay);
+          packageValue = samples.extractProblem(document, location);
+        }
         await postLocal(request, "fetch", packageValue);
+        try {
+          await fetchStateRequest("remove", request);
+        } catch {
+          // The local fetch is already complete; expiry will remove stale state.
+        }
         showStatus(`${packageValue.tests.length} sample pair(s) sent`);
       } catch (error) {
-        const message = messageOf(error);
+        let message = messageOf(error);
+        const fallback = message === "Codeforces problem statement is unavailable"
+          ? nextProblemUrl(location, request.position)
+          : "";
+        if (fallback) {
+          const position = problemOrigins.indexOf(new URL(fallback).origin);
+          try {
+            await fetchStateRequest("advance", {...request, position});
+            showStatus(`trying ${new URL(fallback).host}`);
+            location.replace(fallback);
+            return;
+          } catch (stateError) {
+            message = messageOf(stateError);
+          }
+        }
         await reportQuietly(request, "fetch-error", {message});
+        try {
+          await fetchStateRequest("remove", request);
+        } catch {
+          // Expiry also removes the operation.
+        }
         showStatus(message, true);
       }
     }
@@ -304,6 +385,38 @@
       }
     }
 
+    async function resumePendingFetch() {
+      if (!problemPage(location) || !problemOrigins.includes(location.origin)) return false;
+      let pending;
+      try {
+        pending = await fetchStateRequest("load");
+      } catch {
+        return false;
+      }
+      if (!pending) return false;
+
+      const request = {
+        action: "fetch",
+        port: pending.value.port,
+        token: pending.operation,
+        position: pending.value.position
+      };
+      try {
+        const response = await localRequest(request, "ready");
+        if (!response.ok) throw new Error(`local workbench returned HTTP ${response.status}`);
+      } catch {
+        try {
+          await fetchStateRequest("remove", request);
+        } catch {
+          // Expiry also removes the operation.
+        }
+        return true;
+      }
+      await domReady;
+      await handleFetch(request);
+      return true;
+    }
+
     async function dispatchFragment() {
       const rawFragment = location.hash.startsWith("#") ? location.hash.slice(1) : "";
       const parameters = new URLSearchParams(rawFragment);
@@ -317,11 +430,24 @@
       let request;
       try {
         request = parseRequest(rawFragment);
+        if (request.action === "fetch") {
+          await fetchStateRequest("save", request);
+          request.position = 0;
+        }
         const response = await localRequest(request, "ready");
         if (!response.ok) throw new Error(`local workbench returned HTTP ${response.status}`);
       } catch (error) {
         await domReady;
-        showStatus(messageOf(error), true);
+        const message = messageOf(error);
+        if (request?.action === "fetch") {
+          await reportQuietly(request, "fetch-error", {message});
+          try {
+            await fetchStateRequest("remove", request);
+          } catch {
+            // Expiry also removes the operation.
+          }
+        }
+        showStatus(message, true);
         return;
       }
 
@@ -344,11 +470,21 @@
         location.hash.startsWith("#") ? location.hash.slice(1) : ""
       );
       if (parameters.has("cfx")) void dispatchFragment();
-      else void resumePendingSubmission();
+      else void (async () => {
+        if (!await resumePendingFetch()) await resumePendingSubmission();
+      })();
     }
 
-    return {dispatchFragment, handleSubmit, launch, resumePendingSubmission, stateRequest};
+    return {
+      dispatchFragment,
+      handleFetch,
+      handleSubmit,
+      launch,
+      resumePendingFetch,
+      resumePendingSubmission,
+      stateRequest
+    };
   }
 
-  return {createConnector, parseRequest};
+  return {createConnector, nextProblemUrl, parseRequest};
 });

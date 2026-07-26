@@ -121,12 +121,16 @@ Permission justification:
 
 - `codeforces.com`: read problem titles, limits, and samples after
   `cfx PROBLEM`; fill and post the submission selected by `cfx submit`.
+- `m1.codeforces.com`, `m2.codeforces.com`, `m3.codeforces.com`, and
+  `mirror.codeforces.com`: read only the requested public problem when the main
+  Codeforces host does not serve its statement.
 - `127.0.0.1`: communicate with one short-lived, loopback-only `cfx`
   listener protected by an unguessable operation token.
-- `storage`: retain the pending loopback port and token, Codeforces handle and
-  target, recent prior submission IDs, and submission time only in
-  extension-owned, in-memory session storage while Codeforces redirects the
-  submitting tab; the record is keyed by tab and operation and then deleted.
+- `storage`: retain a pending fetch port, token, and problem path during mirror
+  navigation, or the Codeforces handle, target, recent prior submission IDs,
+  and submission time during submission redirects, only in extension-owned,
+  in-memory session storage; each record is keyed by tab and operation and then
+  deleted.
 - `alarms`: schedule one local, one-shot cleanup at that record's expiry so it
   is deleted even if the submitting tab closes or never returns; the alarm name
   contains only the extension storage key and is cleared on earlier removal.

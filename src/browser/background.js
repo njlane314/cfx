@@ -14,9 +14,21 @@
 
   const localMessage = "cfx-local-request";
   const stateMessage = "cfx-submission-state";
+  const fetchStateMessage = "cfx-fetch-state";
   const statePrefix = "cfx:submission:";
+  const fetchStatePrefix = "cfx:fetch:";
   const alarmPrefix = "cfx:expire:";
   const stateLifetime = 60000;
+  const fetchStateLifetime = 370000;
+  const primaryOrigin = "https://codeforces.com";
+  const problemOrigins = [
+    primaryOrigin,
+    "https://m1.codeforces.com",
+    "https://m2.codeforces.com",
+    "https://m3.codeforces.com",
+    "https://mirror.codeforces.com"
+  ];
+  const problemOriginSet = new Set(problemOrigins);
   const maximumBytes = 16 * 1024 * 1024;
   const smallBody = 64 * 1024;
   const routes = new Map([
@@ -33,31 +45,79 @@
     return message.replace(/\s+/g, " ").trim().slice(0, 1000) || "unknown connector error";
   }
 
-  function codeforcesPage(sender) {
+  function senderPage(sender) {
     if (sender.id !== chrome.runtime.id || sender.frameId !== 0) return false;
-    let url;
     try {
-      url = new URL(sender.url || sender.tab?.url || "");
+      return new URL(sender.url || sender.tab?.url || "");
     } catch {
       return false;
     }
-    if (url.origin !== "https://codeforces.com") return false;
+  }
+
+  function contestProblemPath(pathname) {
+    return /^\/contest\/[0-9]+\/problem\/[^/]+\/?$/i.test(pathname);
+  }
+
+  function problemPath(pathname) {
     return (
-      /^\/contest\/[0-9]+\/problem\/[^/]+\/?$/i.test(url.pathname) ||
-      /^\/problemset\/problem\/[0-9]+\/[^/]+\/?$/i.test(url.pathname) ||
-      /^\/contest\/[0-9]+\/submit\/?$/i.test(url.pathname) ||
-      /^\/problemset\/submit\/?$/i.test(url.pathname) ||
-      /^\/problemset\/status\/?$/i.test(url.pathname) ||
-      /^\/contest\/[0-9]+\/(?:my|status)\/?$/i.test(url.pathname) ||
-      /^\/contest\/[0-9]+\/submission\/[0-9]+\/?$/i.test(url.pathname) ||
-      /^\/problemset\/submission\/[0-9]+\/[0-9]+\/?$/i.test(url.pathname) ||
-      /^\/submissions\/[^/]+\/?$/i.test(url.pathname) ||
-      /^\/enter\/?$/i.test(url.pathname)
+      contestProblemPath(pathname) ||
+      /^\/problemset\/problem\/[0-9]+\/[^/]+\/?$/i.test(pathname)
     );
   }
 
-  function tabId(sender) {
-    if (!codeforcesPage(sender) || !Number.isInteger(sender.tab?.id) || sender.tab.id < 0) {
+  function normalizedProblemPath(pathname) {
+    return problemPath(pathname) && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  }
+
+  function submissionPath(pathname) {
+    return (
+      /^\/contest\/[0-9]+\/submit\/?$/i.test(pathname) ||
+      /^\/problemset\/submit\/?$/i.test(pathname)
+    );
+  }
+
+  function resultPath(pathname) {
+    return submissionPath(pathname) || (
+      /^\/problemset\/status\/?$/i.test(pathname) ||
+      /^\/contest\/[0-9]+\/(?:my|status)\/?$/i.test(pathname) ||
+      /^\/contest\/[0-9]+\/submission\/[0-9]+\/?$/i.test(pathname) ||
+      /^\/problemset\/submission\/[0-9]+\/[0-9]+\/?$/i.test(pathname) ||
+      /^\/submissions\/[^/]+\/?$/i.test(pathname) ||
+      /^\/enter\/?$/i.test(pathname)
+    );
+  }
+
+  function codeforcesPage(sender) {
+    const url = senderPage(sender);
+    if (!url) return false;
+    if (url.origin === primaryOrigin) {
+      return problemPath(url.pathname) || resultPath(url.pathname);
+    }
+    return problemOriginSet.has(url.origin) && contestProblemPath(url.pathname);
+  }
+
+  function routePage(sender, route) {
+    const url = senderPage(sender);
+    if (!url) return false;
+    const primary = url.origin === primaryOrigin;
+    const problem = primary
+      ? problemPath(url.pathname)
+      : problemOriginSet.has(url.origin) && contestProblemPath(url.pathname);
+    return (
+      (route === "ready" && (problem || primary && resultPath(url.pathname))) ||
+      (route === "fetch" && problem) ||
+      (route === "fetch-error" && (problem || primary && resultPath(url.pathname))) ||
+      (route === "submission" && primary && submissionPath(url.pathname)) ||
+      (route === "result" && primary && resultPath(url.pathname))
+    );
+  }
+
+  function tabId(sender, allowMirror = false) {
+    const page = senderPage(sender);
+    if (
+      !codeforcesPage(sender) || (!allowMirror && page.origin !== primaryOrigin) ||
+      !Number.isInteger(sender.tab?.id) || sender.tab.id < 0
+    ) {
       throw new Error("connector messages must come from a Codeforces top-level tab");
     }
     return sender.tab.id;
@@ -116,8 +176,11 @@
   }
 
   async function localRequest(message, sender) {
-    tabId(sender);
     const request = validatedLocalRequest(message);
+    if (!routePage(sender, request.route)) {
+      throw new Error("connector route is not allowed from this Codeforces page");
+    }
+    tabId(sender, true);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
@@ -205,6 +268,9 @@
       throw new Error("invalid submission-state message");
     }
     const tab = tabId(sender);
+    if (!resultPath(senderPage(sender).pathname)) {
+      throw new Error("submission state is not allowed from this Codeforces page");
+    }
     if (message.action === "save") {
       const key = stateKey(tab, message.operation);
       if (!validState(message.value)) throw new Error("invalid pending submission");
@@ -233,6 +299,108 @@
     throw new Error("invalid submission-state action");
   }
 
+  function fetchStateKey(tab, operation) {
+    if (!/^[0-9a-f]{64}$/.test(operation || "")) {
+      throw new Error("invalid fetch operation");
+    }
+    return `${fetchStatePrefix}${tab}:${operation}`;
+  }
+
+  function validFetchState(value) {
+    return Boolean(
+      value &&
+      Number.isInteger(value.port) && value.port > 0 && value.port <= 65535 &&
+      typeof value.pathname === "string" && problemPath(value.pathname) &&
+      Number.isInteger(value.position) && value.position >= 0 &&
+      value.position < problemOrigins.length
+    );
+  }
+
+  async function fetchStatesForTab(tab, pathname = "", now = Date.now()) {
+    const prefix = `${fetchStatePrefix}${tab}:`;
+    const stored = await chrome.storage.session.get(null);
+    const active = [];
+    const stale = [];
+    for (const [key, value] of Object.entries(stored)) {
+      if (!key.startsWith(prefix)) continue;
+      const operation = key.slice(prefix.length);
+      if (
+        !/^[0-9a-f]{64}$/.test(operation) || !validFetchState(value) ||
+        !Number.isSafeInteger(value.expiresAtMillis) || value.expiresAtMillis <= now
+      ) {
+        stale.push(key);
+      } else if (!pathname ||
+                 normalizedProblemPath(value.pathname) === normalizedProblemPath(pathname)) {
+        active.push({operation, value});
+      }
+    }
+    await removeStates(stale);
+    return active;
+  }
+
+  async function fetchStateNow(message, sender) {
+    if (!message || typeof message !== "object" || message.type !== fetchStateMessage) {
+      throw new Error("invalid fetch-state message");
+    }
+    if (!routePage(sender, "fetch")) {
+      throw new Error("fetch state is not allowed from this Codeforces page");
+    }
+    const tab = tabId(sender, true);
+    const page = senderPage(sender);
+    if (message.action === "save") {
+      const key = fetchStateKey(tab, message.operation);
+      if (
+        page.origin !== primaryOrigin || !validFetchState(message.value) ||
+        normalizedProblemPath(message.value.pathname) !== normalizedProblemPath(page.pathname) ||
+        message.value.position !== 0
+      ) {
+        throw new Error("invalid pending fetch");
+      }
+      const active = await fetchStatesForTab(tab);
+      if (active.some(state => state.operation !== message.operation)) {
+        throw new Error("another fetch operation is pending in this tab");
+      }
+      const expiresAtMillis = Date.now() + fetchStateLifetime;
+      await chrome.storage.session.set({[key]: {
+        ...message.value,
+        pathname: normalizedProblemPath(message.value.pathname),
+        expiresAtMillis
+      }});
+      try {
+        await chrome.alarms.create(alarmName(key), {when: expiresAtMillis});
+      } catch (error) {
+        await removeStates([key]);
+        throw error;
+      }
+      return null;
+    }
+    if (message.action === "load") {
+      const active = await fetchStatesForTab(tab, page.pathname);
+      if (active.length > 1) throw new Error("multiple fetch operations are pending in this tab");
+      return active[0] || null;
+    }
+    if (message.action === "advance") {
+      const key = fetchStateKey(tab, message.operation);
+      const active = await fetchStatesForTab(tab, page.pathname);
+      const current = active.find(state => state.operation === message.operation);
+      const pagePosition = problemOrigins.indexOf(page.origin);
+      const expected = Math.max(current?.value.position ?? -1, pagePosition) + 1;
+      if (!current || !Number.isInteger(message.position) ||
+          message.position !== expected || message.position >= problemOrigins.length) {
+        throw new Error("invalid fetch progression");
+      }
+      const value = {...current.value, position: message.position};
+      await chrome.storage.session.set({[key]: value});
+      return {operation: message.operation, value};
+    }
+    if (message.action === "remove") {
+      const key = fetchStateKey(tab, message.operation);
+      await removeStates([key]);
+      return null;
+    }
+    throw new Error("invalid fetch-state action");
+  }
+
   function serializeState(operation) {
     const result = stateQueue.then(operation);
     stateQueue = result.catch(() => {});
@@ -243,11 +411,15 @@
     return serializeState(() => submissionStateNow(message, sender));
   }
 
+  function fetchState(message, sender) {
+    return serializeState(() => fetchStateNow(message, sender));
+  }
+
   function expireState(alarm) {
     return serializeState(async () => {
       if (typeof alarm?.name !== "string" || !alarm.name.startsWith(alarmPrefix)) return;
       const key = alarm.name.slice(alarmPrefix.length);
-      if (!/^cfx:submission:[0-9]+:[0-9a-f]{64}$/.test(key)) return;
+      if (!/^cfx:(?:submission|fetch):[0-9]+:[0-9a-f]{64}$/.test(key)) return;
       await removeStates([key]);
     });
   }
@@ -259,7 +431,9 @@
         ? localRequest
         : message?.type === stateMessage
           ? submissionState
-          : null;
+          : message?.type === fetchStateMessage
+            ? fetchState
+            : null;
       if (!handler) return false;
       handler(message, sender).then(
         value => respond(message.type === localMessage ? {ok: true, ...value} : {ok: true, value}),
@@ -273,6 +447,9 @@
     alarmName,
     codeforcesPage,
     expireState,
+    fetchState,
+    fetchStateKey,
+    fetchStatesForTab,
     listen,
     limitedResponseBody,
     localRequest,

@@ -77,7 +77,8 @@ git push
 ```
 
 `cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
-`solution.cpp`, and remembers the problem. `cfx submit` tests and
+`solution.cpp`, and remembers the problem. If Codeforces is unavailable, the
+connector tries its official contest mirrors. `cfx submit` tests and
 checked-compiles the exact bundled source, submits it with the contest form in
 Chrome, and waits for the verdict. Only `OK` on `TESTS` is archived as
 Accepted. With `cfx.record=commit`, it is committed immediately. `PRETESTS` and

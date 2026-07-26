@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const samples = require(path.resolve(__dirname, "../../src/browser/samples.js"));
 const submission = require(path.resolve(__dirname, "../../src/browser/submission.js"));
-const {createConnector, parseRequest} = require(
+const {createConnector, nextProblemUrl, parseRequest} = require(
   path.resolve(__dirname, "../../src/browser/connector.js")
 );
 
@@ -91,19 +91,43 @@ function formDocument(onSubmit = () => {}, signedOut = false, contest = "") {
   };
 }
 
-function locationFor(pathname) {
+function locationFor(value, origin = "https://codeforces.com") {
+  const url = new URL(value, origin);
   return {
-    origin: "https://codeforces.com",
-    href: `https://codeforces.com${pathname}`,
-    pathname,
-    search: "",
-    hash: "",
+    origin: url.origin,
+    href: url.href,
+    pathname: url.pathname,
+    search: url.search,
+    hash: url.hash,
     assigned: "",
-    assign(value) { this.assigned = value; }
+    replaced: "",
+    assign(next) { this.assigned = next; },
+    replace(next) { this.replaced = next; }
   };
 }
 
-function environment({document, location, sendMessage, fetch, clock}) {
+function problemDocument() {
+  const document = formDocument();
+  const input = {innerText: "1\n"};
+  const output = {innerText: "2\n"};
+  const statement = {
+    querySelector(selector) {
+      if (selector === ".header .title") return {textContent: "A. Mirror test"};
+      if (selector === ".header .time-limit") return {textContent: "1 second"};
+      if (selector === ".header .memory-limit") return {textContent: "256 megabytes"};
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".sample-test .input pre") return [input];
+      if (selector === ".sample-test .output pre") return [output];
+      return [];
+    }
+  };
+  document.querySelector = selector => selector === ".problem-statement" ? statement : null;
+  return document;
+}
+
+function environment({document, location, sendMessage, fetch, clock, delay}) {
   return {
     chrome: {runtime: {sendMessage}},
     document,
@@ -112,7 +136,7 @@ function environment({document, location, sendMessage, fetch, clock}) {
     Event: class Event {},
     fetch,
     now: () => clock.value,
-    delay: async milliseconds => { clock.value += milliseconds; },
+    delay: delay || (async milliseconds => { clock.value += milliseconds; }),
     setTimeout
   };
 }
@@ -213,6 +237,178 @@ async function resumeFlowTest(polls, expected, options = {}) {
   return {location, messages, requestTimes};
 }
 
+async function fetchFlowTests() {
+  const request = {action: "fetch", port: 32123, token};
+  const pending = position => ({
+    operation: token,
+    value: {
+      port: 32123,
+      pathname: "/contest/71/problem/A",
+      position,
+      expiresAtMillis: 80000
+    }
+  });
+
+  const initialMessages = [];
+  const initialLocation = locationFor(
+    `/contest/71/problem/A?cfx_reload=x#cfx=fetch&port=32123&token=${token}`
+  );
+  const initial = createConnector(environment({
+    document: formDocument(),
+    location: initialLocation,
+    clock: {value: 20000},
+    async fetch() { throw new Error("unexpected API fetch"); },
+    async sendMessage(message) {
+      initialMessages.push(message);
+      if (message.type === "cfx-fetch-state") return {ok: true, value: null};
+      return {ok: true, status: 200, body: "{}"};
+    }
+  }));
+  await initial.dispatchFragment();
+  assert.equal(initialLocation.replaced, "https://m1.codeforces.com/contest/71/problem/A");
+  assert.deepEqual(initialMessages.map(message => message.route || message.action), [
+    "save", "ready", "advance"
+  ]);
+  assert.equal(initialMessages[0].operation, token);
+  assert.deepEqual(initialMessages[0].value, {
+    port: 32123,
+    pathname: "/contest/71/problem/A",
+    position: 0
+  });
+  assert.equal(initialMessages[2].position, 1);
+
+  const resumedMessages = [];
+  const resumedLocation = locationFor(
+    "/contest/71/problem/A", "https://m1.codeforces.com"
+  );
+  const resumed = createConnector(environment({
+    document: formDocument(),
+    location: resumedLocation,
+    clock: {value: 20000},
+    async fetch() { throw new Error("unexpected API fetch"); },
+    async sendMessage(message) {
+      resumedMessages.push(message);
+      if (message.type === "cfx-fetch-state") {
+        return {ok: true, value: message.action === "load" ? pending(1) : null};
+      }
+      return {ok: true, status: 200, body: "{}"};
+    }
+  }));
+  assert.equal(await resumed.resumePendingFetch(), true);
+  assert.equal(resumedLocation.replaced, "https://m2.codeforces.com/contest/71/problem/A");
+  assert.deepEqual(resumedMessages.map(message => message.route || message.action), [
+    "load", "ready", "advance"
+  ]);
+  assert.equal(resumedMessages.at(-1).position, 2);
+
+  const challengeClock = {value: 20000};
+  const challengeDocument = formDocument();
+  challengeDocument.title = "Just a moment...";
+  challengeDocument.body.textContent = "Enable JavaScript and cookies to continue";
+  const challengeLocation = locationFor(
+    "/contest/71/problem/A", "https://m2.codeforces.com"
+  );
+  const challenge = createConnector(environment({
+    document: challengeDocument,
+    location: challengeLocation,
+    clock: challengeClock,
+    async fetch() { throw new Error("unexpected API fetch"); },
+    async sendMessage(message) {
+      if (message.type === "cfx-fetch-state") {
+        return {ok: true, value: message.action === "load" ? pending(2) : null};
+      }
+      return {ok: true, status: 200, body: "{}"};
+    }
+  }));
+  await challenge.resumePendingFetch();
+  assert.equal(challengeClock.value, 23000);
+  assert.equal(challengeLocation.replaced, "https://m3.codeforces.com/contest/71/problem/A");
+
+  const resolvedMessages = [];
+  const resolvedClock = {value: 20000};
+  const resolvedDocument = formDocument();
+  resolvedDocument.title = "Just a moment...";
+  resolvedDocument.body.textContent = "Your browser is being checked";
+  const resolvedLocation = locationFor(
+    "/contest/71/problem/A", "https://m2.codeforces.com"
+  );
+  const resolved = createConnector(environment({
+    document: resolvedDocument,
+    location: resolvedLocation,
+    clock: resolvedClock,
+    async delay(milliseconds) {
+      resolvedClock.value += milliseconds;
+      const ready = problemDocument();
+      resolvedDocument.title = "";
+      resolvedDocument.body.textContent = "";
+      resolvedDocument.querySelector = ready.querySelector;
+    },
+    async fetch() { throw new Error("unexpected API fetch"); },
+    async sendMessage(message) {
+      resolvedMessages.push(message);
+      if (message.type === "cfx-fetch-state") {
+        return {ok: true, value: message.action === "load" ? pending(2) : null};
+      }
+      return {ok: true, status: 200, body: "{}"};
+    }
+  }));
+  assert.equal(await resolved.resumePendingFetch(), true);
+  assert.equal(resolvedClock.value, 23000);
+  assert.equal(resolvedLocation.replaced, "");
+  const resolvedPackage = JSON.parse(
+    resolvedMessages.find(message => message.route === "fetch").body
+  );
+  assert.deepEqual(resolvedPackage.tests, [{input: "1\n", output: "2\n"}]);
+
+  const successMessages = [];
+  const successLocation = locationFor(
+    "/contest/71/problem/A", "https://m3.codeforces.com"
+  );
+  const success = createConnector(environment({
+    document: problemDocument(),
+    location: successLocation,
+    clock: {value: 20000},
+    async fetch() { throw new Error("unexpected API fetch"); },
+    async sendMessage(message) {
+      successMessages.push(message);
+      if (message.type === "cfx-fetch-state") {
+        return {ok: true, value: message.action === "load" ? pending(3) : null};
+      }
+      return {ok: true, status: 200, body: "{}"};
+    }
+  }));
+  assert.equal(await success.resumePendingFetch(), true);
+  const fetched = successMessages.find(message => message.route === "fetch");
+  assert.ok(fetched);
+  assert.equal(JSON.parse(fetched.body).url, "https://codeforces.com/contest/71/problem/A");
+  assert.deepEqual(successMessages.map(message => message.route || message.action), [
+    "load", "ready", "fetch", "remove"
+  ]);
+
+  const failedMessages = [];
+  const failedLocation = locationFor(
+    "/contest/71/problem/A", "https://mirror.codeforces.com"
+  );
+  const failed = createConnector(environment({
+    document: formDocument(),
+    location: failedLocation,
+    clock: {value: 20000},
+    async fetch() { throw new Error("unexpected API fetch"); },
+    async sendMessage(message) {
+      failedMessages.push(message);
+      if (message.type === "cfx-fetch-state") {
+        return {ok: true, value: message.action === "load" ? pending(4) : null};
+      }
+      return {ok: true, status: 200, body: "{}"};
+    }
+  }));
+  assert.equal(await failed.resumePendingFetch(), true);
+  assert.equal(failedLocation.replaced, "");
+  assert.deepEqual(failedMessages.map(message => message.route || message.action), [
+    "load", "ready", "fetch-error", "remove"
+  ]);
+}
+
 async function main() {
   assert.deepEqual(parseRequest(`cfx=submit&port=32123&token=${token}`), {
     action: "submit", port: 32123, token
@@ -229,6 +425,33 @@ async function main() {
   assert.equal(samples.parseTimeLimit("1.25 seconds"), 1250);
   assert.equal(samples.parseMemoryLimit("262144 kilobytes"), 256);
   assert.equal(samples.renderedSample({innerText: "1\r\n2\r"}), "1\n2\n");
+  assert.equal(samples.cleanUrl({
+    href: "https://m3.codeforces.com/contest/71/problem/A?__cf_chl_tk=secret#connector"
+  }), "https://codeforces.com/contest/71/problem/A");
+  const origins = [
+    "https://codeforces.com",
+    "https://m1.codeforces.com",
+    "https://m2.codeforces.com",
+    "https://m3.codeforces.com",
+    "https://mirror.codeforces.com"
+  ];
+  for (let index = 0; index + 1 < origins.length; ++index) {
+    assert.equal(
+      nextProblemUrl(locationFor("/contest/71/problem/A", origins[index])),
+      `${origins[index + 1]}/contest/71/problem/A`
+    );
+  }
+  assert.equal(
+    nextProblemUrl(locationFor("/contest/71/problem/A", origins[0]), 3),
+    "https://mirror.codeforces.com/contest/71/problem/A"
+  );
+  assert.equal(
+    nextProblemUrl(locationFor("/contest/71/problem/A/", origins[1]), 1),
+    "https://m2.codeforces.com/contest/71/problem/A"
+  );
+  assert.equal(nextProblemUrl(locationFor(
+    "/contest/71/problem/A", "https://evil.codeforces.com"
+  )), "");
 
   const handleDocument = {
     querySelectorAll() {
@@ -248,19 +471,50 @@ async function main() {
     }
   }, "https://codeforces.com"), /determine/);
 
-  const badActionDocument = formDocument();
+  for (const action of [
+    "?csrf_token=csrf",
+    "submit?csrf_token=csrf",
+    "/contest/71/submit?csrf_token=csrf",
+    "https://codeforces.com/contest/71/submit?csrf_token=csrf"
+  ]) {
+    const relativeActionDocument = formDocument(() => {}, false, "71");
+    relativeActionDocument.baseURI = "https://codeforces.com/contest/71/submit?cfx_reload=1";
+    relativeActionDocument.forms[0].getAttribute = name => name === "action" ? action : null;
+    assert.doesNotThrow(() => submission.prepareForm(
+      artifact, relativeActionDocument, locationFor("/contest/71/submit"), class Event {}
+    ));
+  }
+  const relativeSubmitterDocument = formDocument(() => {}, false, "71");
+  relativeSubmitterDocument.baseURI = "https://codeforces.com/contest/71/submit";
+  const relativeSubmitter = relativeSubmitterDocument.forms[0].querySelector(
+    'button[type="submit"], input[type="submit"]'
+  );
+  relativeSubmitter.getAttribute = name =>
+    name === "formaction" ? "?csrf_token=csrf" : null;
+  assert.doesNotThrow(() => submission.prepareForm(
+    artifact, relativeSubmitterDocument, locationFor("/contest/71/submit"), class Event {}
+  ));
+
+  const badActionDocument = formDocument(() => {}, false, "71");
   badActionDocument.forms[0].getAttribute = name =>
-    name === "action" ? "/settings/general" : null;
+    name === "action" ? "/contest/72/submit" : null;
   assert.throws(() => submission.prepareForm(
-    artifact, badActionDocument, locationFor("/problemset/submit"), class Event {}
+    artifact, badActionDocument, locationFor("/contest/71/submit"), class Event {}
   ), /unexpected target/);
   const badSubmitterDocument = formDocument();
   const badSubmitter = badSubmitterDocument.forms[0].querySelector(
     'button[type="submit"], input[type="submit"]'
   );
-  badSubmitter.getAttribute = name => name === "formaction" ? "/settings/general" : null;
+  badSubmitter.getAttribute = name =>
+    name === "formaction" ? "https://example.com/problemset/submit" : null;
   assert.throws(() => submission.prepareForm(
     artifact, badSubmitterDocument, locationFor("/problemset/submit"), class Event {}
+  ), /unexpected target/);
+  const badBaseDocument = formDocument(() => {}, false, "71");
+  badBaseDocument.baseURI = "https://example.com/contest/71/submit";
+  badBaseDocument.forms[0].getAttribute = name => name === "action" ? "submit" : null;
+  assert.throws(() => submission.prepareForm(
+    artifact, badBaseDocument, locationFor("/contest/71/submit"), class Event {}
   ), /unexpected target/);
 
   const pending = {
@@ -312,6 +566,7 @@ async function main() {
   );
 
   await submitFlowTest();
+  await fetchFlowTests();
   const accepted = await resumeFlowTest([[apiRecord(555)], [apiRecord(555)]], {
     ok: true,
     submissionId: "555",

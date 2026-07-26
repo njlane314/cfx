@@ -14,11 +14,15 @@ bounded before they are read; responses are non-cacheable and carry only the
 matching extension CORS origin.
 
 The extension accepts messages only from its own top-level content script on an
-explicit allowlist of Codeforces paths. Its service worker enforces the same
-route/method and byte limits, refuses loopback redirects, and reads responses
-with a hard byte limit. Pending submission identity lives only in
-`chrome.storage.session`, keyed by tab and operation, and is removed after
-completion or a one-shot 60-second expiry.
+explicit allowlist of Codeforces paths. The exact official contest mirrors are
+limited to problem-fetch routes; submission remains restricted to
+`https://codeforces.com`. Its service worker enforces the same route/method and
+byte limits, refuses loopback redirects, and reads responses with a hard byte
+limit. Mirror navigation keeps only the fetch port, token, and exact problem
+path in `chrome.storage.session`, keyed by tab and operation. Pending fetch and
+submission state is removed after completion; fetch state expires with the
+browser bridge after 370 seconds, and submission state has a one-shot 60-second
+expiry.
 
 Submission automation accepts only `https://codeforces.com` forms posting to
 the expected submission path, rejects submit-control action or method

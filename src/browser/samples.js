@@ -13,6 +13,10 @@
   function cleanUrl(location) {
     const url = new URL(location.href);
     url.hash = "";
+    if (/^(?:m[123]|mirror)\.codeforces\.com$/i.test(url.hostname)) {
+      url.hostname = "codeforces.com";
+      url.search = "";
+    }
     return url.href;
   }
 
@@ -95,5 +99,5 @@
     };
   }
 
-  return {extractProblem, parseMemoryLimit, parseTimeLimit, problemIndex, renderedSample};
+  return {cleanUrl, extractProblem, parseMemoryLimit, parseTimeLimit, problemIndex, renderedSample};
 });
