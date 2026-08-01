@@ -228,6 +228,23 @@ void test_template_selection_and_archive_library() {
             "bundle removes transitive quoted include");
 }
 
+void test_peek_submodule_bundling() {
+    TemporaryDirectory temporary;
+    const auto& root = temporary.path();
+    write(root / "include" / "peek" / "peek.hpp",
+          "#pragma once\n#include <array>\ninline constexpr int peek_answer = 42;\n");
+    write(root / "solution.cpp", "#include <peek.hpp>\nint answer = peek_answer;\n");
+
+    const std::string expected =
+        "\n// ===== BEGIN peek.hpp =====\n"
+        "#include <array>\n"
+        "inline constexpr int peek_answer = 42;\n"
+        "// ===== END peek.hpp =====\n\n"
+        "int answer = peek_answer;\n";
+    require(cfx::bundle(root / "solution.cpp", root) == expected,
+            "bundle expands include/peek/peek.hpp exactly");
+}
+
 void test_file_operations() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
@@ -341,6 +358,7 @@ int main() {
         test_problem_paths_and_inference();
         test_workspace_creation_is_idempotent();
         test_template_selection_and_archive_library();
+        test_peek_submodule_bundling();
         test_file_operations();
         test_current_problem_record();
         test_nested_and_repeated_bundling();

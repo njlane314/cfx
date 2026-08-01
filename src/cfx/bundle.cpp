@@ -15,7 +15,7 @@ namespace {
 namespace fs = std::filesystem;
 
 const std::regex kBundledInclude(
-    R"regex(^[[:space:]]*#[[:space:]]*include[[:space:]]*(?:"([^"]+)"|<(cp/[^>]+)>)[[:space:]]*(?://.*)?$)regex");
+    R"regex(^[[:space:]]*#[[:space:]]*include[[:space:]]*(?:"([^"]+)"|<(cp/[^>]+|peek\.hpp)>)[[:space:]]*(?://.*)?$)regex");
 const std::regex
     kPragmaOnce(R"(^[[:space:]]*#[[:space:]]*pragma[[:space:]]+once[[:space:]]*(?://.*)?$)");
 
@@ -62,11 +62,12 @@ class BundleRun {
 
   private:
     fs::path resolve_include(std::string_view include, const fs::path& directory) const {
-        const std::vector<fs::path> candidates = {
-            directory / include,
-            root_ / "include" / include,
-            root_ / include,
-        };
+        std::vector<fs::path> candidates{directory / include};
+        if (include == "peek.hpp") {
+            candidates.push_back(root_ / "include" / "peek" / include);
+        }
+        candidates.push_back(root_ / "include" / include);
+        candidates.push_back(root_ / include);
         std::vector<std::string> searched;
         for (const auto& candidate : candidates) {
             std::error_code error;

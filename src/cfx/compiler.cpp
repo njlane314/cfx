@@ -63,6 +63,8 @@ std::vector<std::string> compile_flags(const std::string& standard, bool checked
         flags.push_back("-ULOCAL");
         flags.push_back("-DONLINE_JUDGE");
     }
+    flags.push_back("-UPEEK_COMPILED");
+    flags.push_back(local ? "-DPEEK_COMPILED=1" : "-DPEEK_COMPILED=0");
     return flags;
 }
 

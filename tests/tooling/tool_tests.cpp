@@ -325,6 +325,9 @@ void test_build_cache(const fs::path& root) {
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 7\n");
     write(root / "include" / "unused.hpp", "#pragma once\n#define UNUSED 1\n");
     write(problem.solution_path(), "#include \"value.hpp\"\n"
+                                   "#if PEEK_COMPILED != 1\n"
+                                   "#error local build must enable peek\n"
+                                   "#endif\n"
                                    "int main() { return VALUE == 7 ? 0 : 1; }\n");
     const cfx::Builder builder(root);
     const cfx::BuildResult first = builder.build_problem(problem);
@@ -342,12 +345,26 @@ void test_build_cache(const fs::path& root) {
     const cfx::BuildResult third = builder.build_problem(problem);
     check(third.binary != first.binary, "included-header edit changes the cache key");
 
+    write(problem.solution_path(), "#ifndef LOCAL\n"
+                                   "#error checked local build must define LOCAL\n"
+                                   "#endif\n"
+                                   "#if PEEK_COMPILED != 1\n"
+                                   "#error checked local build must enable peek\n"
+                                   "#endif\n"
+                                   "int main() {}\n");
+    const cfx::BuildResult checked_local =
+        builder.build_problem(problem, cfx::BuildOptions{true, true});
+    check(fs::is_regular_file(checked_local.binary),
+          "checked local mode compiles with peek enabled");
+
     write(problem.solution_path(),
           "#ifdef LOCAL\n#error submission build must not define LOCAL\n#endif\n"
+          "#if PEEK_COMPILED != 0\n#error submission build must disable peek\n#endif\n"
           "int main() {}\n");
     const cfx::BuildResult submission =
         builder.build_problem(problem, cfx::BuildOptions{true, false});
-    check(fs::is_regular_file(submission.binary), "submission mode compiles without LOCAL");
+    check(fs::is_regular_file(submission.binary),
+          "submission mode compiles without LOCAL and with peek disabled");
 
     const char* old_cfx_standard = std::getenv("CFX_STD");
     const char* old_standard = std::getenv("STD");
@@ -461,6 +478,9 @@ void test_submission_preparation(const fs::path& root) {
           "constexpr bool local_build = true;\n"
           "#else\n"
           "constexpr bool local_build = false;\n"
+          "#endif\n"
+          "#if PEEK_COMPILED != 0\n"
+          "#error submission preparation must disable peek\n"
           "#endif\n"
           "int main() { int value = 0; std::cin >> value; "
           "std::cout << value + (local_build ? 0 : 0) << '\\n'; }\n");

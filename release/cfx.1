@@ -120,6 +120,11 @@ Fetched problem metadata and resource limits.
 .I include/cp/
 Optional archive-owned competitive-programming headers or library submodule.
 .TP
+.I include/peek/
+Optional archive-owned
+.B peek
+diagnostics submodule.
+.TP
 .I $XDG_STATE_HOME/cfx/workspaces/
 Fetched samples, builds, run output, current-problem state, and prepared
 submissions.
@@ -127,26 +132,53 @@ When
 .B XDG_STATE_HOME
 is unset, cfx uses
 .IR $HOME/.local/state/cfx/workspaces/ .
-.SH LIBRARY
+.SH LIBRARIES
 .B cfx
-ships no competitive-programming headers.
+ships no C++ support headers.
 The separate, extensionless
 .B cp
-library can be added directly to an archive:
+algorithm library and single-header
+.B peek
+diagnostics library can be added independently:
 .PP
 .nf
 git submodule add https://github.com/njlane314/cp include/cp
+git submodule add https://github.com/njlane314/peek include/peek
 .fi
 .PP
-Include only the required components, for example:
+Include only the required components. For example:
 .PP
 .nf
 #include <cp/fenwick_tree>
 .fi
 .PP
 .B cfx
-expands the selected headers and their transitive includes into the exact
-source compiled and submitted.
+defines
+.B PEEK_COMPILED=1
+for local builds and
+.B PEEK_COMPILED=0
+for submission builds, so a solution only needs:
+.PP
+.nf
+#include <peek.hpp>
+.fi
+.PP
+When compiling outside
+.BR cfx ,
+apply the equivalent policy before the include:
+.PP
+.nf
+#ifdef LOCAL
+#define PEEK_COMPILED 1
+#else
+#define PEEK_COMPILED 0
+#endif
+#include <peek.hpp>
+.fi
+.PP
+.B cfx
+expands selected headers and their transitive includes into the exact source
+compiled and submitted. Its default solution template remains dependency-free.
 .SH ENVIRONMENT
 .TP
 .B CXX

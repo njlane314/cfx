@@ -89,7 +89,7 @@ push a public solution archive during a round; `cfx` never pushes.
 ```text
 solutions/
 ├── .cfx/solution.cpp               optional starter template
-├── include/                        optional personal headers
+├── include/                        optional library submodules
 └── codeforces/<contest>/<index>/
     ├── solution.cpp
     ├── problem.json
@@ -101,25 +101,46 @@ and prepared submissions remain external. Empty optional directories
 need no placeholder files. A tracked `.cfx/solution.cpp` overrides the packaged
 starter.
 
-## LIBRARY
+## LIBRARIES
 
 The solution template contains only stream setup and `solve()`. `cfx` ships no
-competitive-programming library. The separate, extensionless
-[`cp`](https://github.com/njlane314/cp) library fits directly into a solution
-archive as a Git submodule:
+C++ support libraries. Add the extensionless
+[`cp`](https://github.com/njlane314/cp) algorithm library and the single-header
+[`peek`](https://github.com/njlane314/peek) diagnostics library independently:
 
 ```sh
 git submodule add https://github.com/njlane314/cp include/cp
+git submodule add https://github.com/njlane314/peek include/peek
 ```
 
-Include only the components a solution uses:
+Include only the components a solution uses. An archive can use either library
+without the other:
 
 ```cpp
 #include <cp/fenwick_tree>
 ```
 
-The library remains independently versioned while `cfx` expands its transitive
-includes into the exact source compiled and submitted.
+`cfx` defines `PEEK_COMPILED=1` for local builds and `PEEK_COMPILED=0` for
+submission builds, so a solution only needs:
+
+```cpp
+#include <peek.hpp>
+```
+
+When compiling outside `cfx`, apply the equivalent policy before the include:
+
+```cpp
+#ifdef LOCAL
+#define PEEK_COMPILED 1
+#else
+#define PEEK_COMPILED 0
+#endif
+#include <peek.hpp>
+```
+
+The libraries remain independently versioned while `cfx` expands their
+transitive includes into the exact source compiled and submitted. The default
+template stays dependency-free.
 
 ## CHECKS
 
