@@ -1,4 +1,3 @@
-#include "cfx/assets.hpp"
 #include "cfx/bundle.hpp"
 #include "cfx/file.hpp"
 #include "cfx/problem.hpp"
@@ -176,7 +175,7 @@ void test_problem_paths_and_inference() {
 void test_workspace_creation_is_idempotent() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
-    write(root / "templates" / "solution.cpp", "// template\n");
+    write(root / "solution.cpp", "// template\n");
 
     const auto problem = cfx::Problem::parse("2227A", root);
     const cfx::Workspace workspace(root);
@@ -191,53 +190,42 @@ void test_workspace_creation_is_idempotent() {
     require(read(second) == "// keep me\n", "existing solution not overwritten");
 }
 
-void test_separate_asset_root() {
+void test_template_selection_and_archive_library() {
     TemporaryDirectory workspace;
-    TemporaryDirectory assets;
-    const ScopedEnvironment environment("CFX_ASSET_ROOT", assets.path().string());
+    TemporaryDirectory configured;
+    TemporaryDirectory library;
+    const fs::path template_path = configured.path() / "solution.cpp";
+    const ScopedEnvironment environment("CFX_SOLUTION_TEMPLATE", template_path.string());
 
-    write(assets.path() / "templates" / "solution.cpp", "// installed template\n");
-    write(assets.path() / "include" / "cp" / "detail",
-          "#pragma once\nconstexpr int detail = 7;\n");
-    write(assets.path() / "include" / "cp" / "value",
-          "#pragma once\n#include \"cp/detail\"\nconstexpr int value = detail;\n"
-          "constexpr int header_source = 7;\n");
+    write(template_path, "// configured template\n");
 
     const auto problem = cfx::Problem::parse("71A", workspace.path());
     const auto created = cfx::Workspace(workspace.path()).create(problem);
-    require(read(created) == "// installed template\n",
-            "workspace uses template from separate asset root");
-    require(cfx::asset_root(workspace.path()) == fs::weakly_canonical(assets.path()),
-            "configured asset root resolves independently");
+    require(read(created) == "// configured template\n",
+            "workspace uses configured solution template");
 
     write(workspace.path() / ".cfx" / "solution.cpp", "// archive template\n");
     const auto local_problem = cfx::Problem::parse("72A", workspace.path());
     const auto local_created = cfx::Workspace(workspace.path()).create(local_problem);
     require(read(local_created) == "// archive template\n",
-            "archive template overrides installed template");
+            "archive template overrides configured template");
 
     write(workspace.path() / "solution.cpp",
           "#include <cp/value>\nint main() { return value; }\n");
-    const std::string installed = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
-    require(installed.find("detail = 7") != std::string::npos &&
-                installed.find("header_source = 7") != std::string::npos,
-            "bundle expands installed extensionless library headers transitively");
-    require(installed.find("#include <cp/value>") == std::string::npos,
-            "bundle removes cp angle include");
-    require(installed.find("#include \"cp/detail\"") == std::string::npos,
-            "bundle removes transitive quoted include");
-
-    write(workspace.path() / "include" / "cp" / "detail",
-          "#pragma once\nconstexpr int detail = 8;\n");
-    write(workspace.path() / "include" / "cp" / "value",
+    write(library.path() / "detail", "#pragma once\nconstexpr int detail = 8;\n");
+    write(library.path() / "value",
           "#pragma once\n#include \"cp/detail\"\nconstexpr int value = detail;\n"
           "constexpr int header_source = 8;\n");
-    const std::string local = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
-    require(local.find("detail = 8") != std::string::npos &&
-                local.find("header_source = 8") != std::string::npos &&
-                local.find("detail = 7") == std::string::npos &&
-                local.find("header_source = 7") == std::string::npos,
-            "workspace library header overrides installed asset");
+    fs::create_directories(workspace.path() / "include");
+    fs::create_directory_symlink(library.path(), workspace.path() / "include" / "cp");
+    const std::string bundled = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
+    require(bundled.find("detail = 8") != std::string::npos &&
+                bundled.find("header_source = 8") != std::string::npos,
+            "bundle expands symlinked library headers transitively");
+    require(bundled.find("#include <cp/value>") == std::string::npos,
+            "bundle removes cp angle include");
+    require(bundled.find("#include \"cp/detail\"") == std::string::npos,
+            "bundle removes transitive quoted include");
 }
 
 void test_file_operations() {
@@ -352,7 +340,7 @@ int main() {
         test_problem_parsing();
         test_problem_paths_and_inference();
         test_workspace_creation_is_idempotent();
-        test_separate_asset_root();
+        test_template_selection_and_archive_library();
         test_file_operations();
         test_current_problem_record();
         test_nested_and_repeated_bundling();

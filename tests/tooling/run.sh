@@ -42,8 +42,12 @@ common_flags=(
 
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
+    -fsyntax-only \
+    "$repo_root/solution.cpp"
+
+"${compiler_command[@]}" \
+    "${common_flags[@]}" \
     "$script_dir/core_tests.cpp" \
-    "$repo_root/src/cfx/assets.cpp" \
     "$repo_root/src/cfx/problem.cpp" \
     "$repo_root/src/cfx/runtime.cpp" \
     "$repo_root/src/cfx/workspace.cpp" \

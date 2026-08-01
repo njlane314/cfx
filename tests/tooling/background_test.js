@@ -94,7 +94,7 @@ async function main() {
     assert.ok(contentScriptMatches.includes(match), `missing content-script match: ${match}`);
   }
   const expectedId = fs
-    .readFileSync(path.resolve(__dirname, "../../assets/browser/extension-id"), "utf8")
+    .readFileSync(path.resolve(__dirname, "../../src/browser/extension-id"), "utf8")
     .trim();
   const digest = crypto.createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest();
   const derivedId = Array.from(digest.subarray(0, 16), byte =>

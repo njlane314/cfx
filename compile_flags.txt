@@ -1,4 +1,3 @@
 -std=gnu++20
--Iassets/include
 -Isrc
 -DLOCAL

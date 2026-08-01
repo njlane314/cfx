@@ -11,11 +11,13 @@ class Cfx < Formula
     system "make", "build", "CXX=#{ENV.cxx}", "CFX_STD=c++20"
     libexec.install ".build/tools/cfx"
     man1.install "release/cfx.1"
-    pkgshare.install "assets/include", "assets/templates"
-    (pkgshare/"browser").install "assets/browser/extension-id"
+    extension_id = (buildpath/"src/browser/extension-id").read.strip
+    pkgshare.install "solution.cpp"
+    pkgshare.install "src/browser/extension-id"
     (bin/"cfx").write_env_script libexec/"cfx",
-                                 CFX_ASSET_ROOT: pkgshare,
-                                 CXX:            formula_opt_bin("llvm")/"clang++"
+                                 CFX_SOLUTION_TEMPLATE:   pkgshare/"solution.cpp",
+                                 CFX_CHROME_EXTENSION_ID: extension_id,
+                                 CXX:                     formula_opt_bin("llvm")/"clang++"
   end
 
   test do
@@ -25,10 +27,9 @@ class Cfx < Formula
     (cases/"case-1.in").write "8\n"
     (cases/"case-1.out").write "YES\n"
     (testpath/"codeforces/4/A/solution.cpp").write <<~CPP
-      #include <cp/types>
       #include <iostream>
       int main() {
-          cp::i64 weight = 0;
+          long long weight = 0;
           std::cin >> weight;
           std::cout << (weight > 2 && weight % 2 == 0 ? "YES" : "NO") << '\\n';
       }

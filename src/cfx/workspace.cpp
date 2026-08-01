@@ -1,9 +1,9 @@
 #include "cfx/workspace.hpp"
 
-#include "cfx/assets.hpp"
 #include "cfx/file.hpp"
 #include "cfx/runtime.hpp"
 
+#include <cstdlib>
 #include <system_error>
 #include <utility>
 
@@ -28,7 +28,10 @@ fs::path select_template(const fs::path& root) {
     if (fs::exists(local)) {
         return local;
     }
-    const auto preferred = asset_root(root) / "templates" / "solution.cpp";
+    const char* configured = std::getenv("CFX_SOLUTION_TEMPLATE");
+    const fs::path preferred = configured != nullptr && *configured != '\0'
+                                   ? fs::path(configured)
+                                   : root / "solution.cpp";
     if (fs::is_regular_file(preferred)) {
         return preferred;
     }

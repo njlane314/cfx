@@ -12,7 +12,11 @@ while [ -L "$script" ]; do
 done
 
 prefix=$(CDPATH= cd -P "$(dirname "$script")/.." >/dev/null 2>&1 && pwd)
-CFX_ASSET_ROOT=${CFX_ASSET_ROOT:-$prefix/share/cfx}
+share=$prefix/share/cfx
+CFX_SOLUTION_TEMPLATE=${CFX_SOLUTION_TEMPLATE:-$share/solution.cpp}
+if [ -z "${CFX_CHROME_EXTENSION_ID:-}" ]; then
+    CFX_CHROME_EXTENSION_ID=$(tr -d '[:space:]' <"$share/extension-id")
+fi
 if [ -n "${CFX_CXX:-}" ]; then
     CXX=$CFX_CXX
 elif [ -z "${CXX:-}" ]; then
@@ -25,6 +29,6 @@ elif [ -z "${CXX:-}" ]; then
     fi
 fi
 CFX_STD=${CFX_STD:-c++20}
-export CFX_ASSET_ROOT CFX_STD CXX
+export CFX_SOLUTION_TEMPLATE CFX_CHROME_EXTENSION_ID CFX_STD CXX
 
 exec "$prefix/libexec/cfx" "$@"

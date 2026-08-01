@@ -14,17 +14,20 @@ archive=$("$script_dir/package.sh" 0.0.0-test "$(uname -s | tr '[:upper:]' '[:lo
 tar -xzf "$archive" -C "$work"
 package=${archive##*/}
 package=${package%.tar.gz}
-for path in bin/cfx libexec/cfx share/cfx/templates/solution.cpp \
-    share/cfx/browser/extension-id \
+for path in bin/cfx libexec/cfx share/cfx/solution.cpp share/cfx/extension-id \
     share/man/man1/cfx.1 LICENSE; do
     [[ -e $work/$package/$path ]] || { echo "release test: package lacks $path" >&2; exit 1; }
 done
-for header in types utility contract debug disjoint_set fenwick_tree segment_tree modint kmp; do
-    path=$work/$package/share/cfx/include/cp/$header
-    [[ -f $path ]] || { echo "release test: package lacks include/cp/$header" >&2; exit 1; }
+for removed in share/cfx/include share/cfx/templates share/cfx/browser; do
+    [[ ! -e $work/$package/$removed ]] || {
+        echo "release test: package retains $removed" >&2
+        exit 1
+    }
 done
-legacy=$(find "$work/$package/share/cfx/include/cp" -type f -name '*.hpp' -print -quit)
-[[ -z $legacy ]] || { echo "release test: package contains legacy header $legacy" >&2; exit 1; }
+cmp -s "$root/solution.cpp" "$work/$package/share/cfx/solution.cpp"
+cmp -s "$root/src/browser/extension-id" "$work/$package/share/cfx/extension-id"
+grep -q 'CFX_SOLUTION_TEMPLATE' "$work/$package/bin/cfx"
+grep -q 'CFX_CHROME_EXTENSION_ID' "$work/$package/bin/cfx"
 grep -q '^\.TH CFX 1 ' "$work/$package/share/man/man1/cfx.1"
 ! grep -q '\\-\\-remote-check' "$work/$package/share/man/man1/cfx.1"
 "$work/$package/bin/cfx" --help >/dev/null
@@ -36,11 +39,10 @@ mkdir -p "$workspace/codeforces/4/A/cases"
 printf '8\n' >"$workspace/codeforces/4/A/cases/case-1.in"
 printf 'YES\n' >"$workspace/codeforces/4/A/cases/case-1.out"
 cat >"$workspace/codeforces/4/A/solution.cpp" <<'CPP'
-#include <cp/types>
 #include <iostream>
 
 int main() {
-    cp::i64 weight = 0;
+    long long weight = 0;
     std::cin >> weight;
     std::cout << (weight > 2 && weight % 2 == 0 ? "YES" : "NO") << '\n';
 }

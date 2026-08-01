@@ -374,7 +374,7 @@ void test_build_cache(const fs::path& root) {
 }
 
 void test_companion_import(const fs::path& root) {
-    write(root / "templates" / "solution.cpp", "int main() {}\n");
+    write(root / "solution.cpp", "int main() {}\n");
     const std::string payload = R"({"name":"Way Too Long Words",)"
                                 R"("url":"https://codeforces.com/contest/71/problem/A",)"
                                 R"("timeLimit":1000,"memoryLimit":256,)"

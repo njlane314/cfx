@@ -1,6 +1,5 @@
 #include "browser.hpp"
 
-#include "assets.hpp"
 #include "browser_http.hpp"
 #include "codeforces.hpp"
 #include "json.hpp"
@@ -16,9 +15,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 #include <fcntl.h>
-#include <fstream>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -117,19 +114,7 @@ std::string configured_extension_identifier() {
         configured != nullptr && *configured != '\0') {
         return configured;
     }
-    const char* root = std::getenv("CFX_ROOT");
-    const std::filesystem::path fallback = root != nullptr && *root != '\0'
-                                               ? std::filesystem::path(root)
-                                               : std::filesystem::current_path();
-    std::ifstream input(asset_root(fallback) / "browser" / "extension-id");
-    if (!input) {
-        return {};
-    }
-    std::string value{
-        std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>(),
-    };
-    return trim(value);
+    return {};
 }
 
 bool allowed_origin(std::string_view origin, std::string_view expected_identifier) {
@@ -604,7 +589,7 @@ class Bridge {
         }
         if (options_.extension_id.empty()) {
             throw std::runtime_error(
-                "Chrome extension ID is not configured; browser/extension-id is missing");
+                "Chrome extension ID is not configured; set CFX_CHROME_EXTENSION_ID");
         }
     }
 

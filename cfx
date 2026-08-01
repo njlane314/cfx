@@ -23,7 +23,11 @@ fi
 
 export CXX=$compiler
 export CFX_STD=${CFX_STD:-c++20}
-export CFX_ASSET_ROOT=${CFX_ASSET_ROOT:-$root/assets}
+export CFX_SOLUTION_TEMPLATE=${CFX_SOLUTION_TEMPLATE:-$root/solution.cpp}
+if [[ -z ${CFX_CHROME_EXTENSION_ID:-} ]]; then
+    IFS= read -r CFX_CHROME_EXTENSION_ID <"$root/src/browser/extension-id"
+fi
+export CFX_CHROME_EXTENSION_ID
 
 make --no-print-directory -s -C "$root" build
 exec "$root/.build/tools/cfx" "$@"

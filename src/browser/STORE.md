@@ -8,7 +8,8 @@ make browser-package
 
 The resulting `.build/browser/cfx-connector-<version>.zip` has
 `manifest.json` at its root and contains only runtime files. Packaging requires
-Node.js and `zip`, generates the extension icons, and downloads no dependency.
+Node.js and `zip`, includes the tracked extension icons, and downloads no
+dependency.
 
 ## Release checklist
 
@@ -16,7 +17,7 @@ Node.js and `zip`, generates the extension icons, and downloads no dependency.
 - [ ] Distribution visibility is **Public**, all intended regions are selected,
   and the category is **Developer Tools**.
 - [ ] Store public key and item ID have replaced the development values in
-  `src/browser/manifest.json` and `assets/browser/extension-id`.
+  `src/browser/manifest.json` and `src/browser/extension-id`.
 - [ ] Listing artwork meets the current Chrome Web Store requirements.
 - [ ] Privacy policy URL:
   `https://github.com/njlane314/cfx/blob/main/src/browser/PRIVACY.md`.
@@ -32,7 +33,7 @@ Node.js and `zip`, generates the extension icons, and downloads no dependency.
 2. Upload the ZIP and save it as a draft.
 3. In **Package**, copy the item ID and **View public key** value.
 4. Replace the development `key` in `src/browser/manifest.json` with that
-   public key, and replace `assets/browser/extension-id` with the item ID.
+   public key, and replace `src/browser/extension-id` with the item ID.
 5. Rebuild and upload the final ZIP.
 6. Paste the copy below and upload the listing artwork.
 7. In **Privacy**, make the disclosures below and certify Limited Use.

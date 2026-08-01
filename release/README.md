@@ -39,14 +39,13 @@ Native archives contain:
 bin/cfx
 libexec/cfx
 share/man/man1/cfx.1
-share/cfx/include/
-share/cfx/templates/
-share/cfx/browser/extension-id
+share/cfx/solution.cpp
+share/cfx/extension-id
 LICENSE
 ```
 
-`bin/cfx` sets `CFX_ASSET_ROOT` and runs `libexec/cfx`. Solutions and runtime
-state remain outside the installation.
+`bin/cfx` sets `CFX_SOLUTION_TEMPLATE` and `CFX_CHROME_EXTENSION_ID`, then runs
+`libexec/cfx`. Solutions and runtime state remain outside the installation.
 
 ## VERIFY
 

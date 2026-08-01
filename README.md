@@ -103,18 +103,23 @@ starter.
 
 ## LIBRARY
 
-The solution template contains only stream setup and `solve()`. Reusable,
-header-only components live under `assets/include/cp/` and are included
-selectively:
+The solution template contains only stream setup and `solve()`. `cfx` ships no
+competitive-programming library. The separate, extensionless
+[`cp`](https://github.com/njlane314/cp) library fits directly into a solution
+archive as a Git submodule:
+
+```sh
+git submodule add https://github.com/njlane314/cp include/cp
+```
+
+Include only the components a solution uses:
 
 ```cpp
 #include <cp/fenwick_tree>
 ```
 
-The extensionless headers are self-contained and use the `cp` namespace:
-`types`, `utility`, `contract`, `debug`, `disjoint_set`, `fenwick_tree`,
-`segment_tree`, `modint`, and `kmp`. They are ordinary files, not a managed
-catalogue; `cfx` expands only the headers a solution includes.
+The library remains independently versioned while `cfx` expands its transitive
+includes into the exact source compiled and submitted.
 
 ## CHECKS
 

@@ -118,7 +118,7 @@ Handwritten cases.
 Fetched problem metadata and resource limits.
 .TP
 .I include/cp/
-Extensionless, submission-safe competitive-programming headers.
+Optional archive-owned competitive-programming headers or library submodule.
 .TP
 .I $XDG_STATE_HOME/cfx/workspaces/
 Fetched samples, builds, run output, current-problem state, and prepared
@@ -127,6 +127,26 @@ When
 .B XDG_STATE_HOME
 is unset, cfx uses
 .IR $HOME/.local/state/cfx/workspaces/ .
+.SH LIBRARY
+.B cfx
+ships no competitive-programming headers.
+The separate, extensionless
+.B cp
+library can be added directly to an archive:
+.PP
+.nf
+git submodule add https://github.com/njlane314/cp include/cp
+.fi
+.PP
+Include only the required components, for example:
+.PP
+.nf
+#include <cp/fenwick_tree>
+.fi
+.PP
+.B cfx
+expands the selected headers and their transitive includes into the exact
+source compiled and submitted.
 .SH ENVIRONMENT
 .TP
 .B CXX
@@ -145,6 +165,14 @@ Explicit archive root.
 .TP
 .B CFX_STATE_ROOT
 Explicit runtime-state root.
+.TP
+.B CFX_SOLUTION_TEMPLATE
+Starter-template path used when an archive has no
+.IR .cfx/solution.cpp .
+.TP
+.B CFX_CHROME_EXTENSION_ID
+Allowed Chrome connector identity.
+Installed launchers set this from the packaged extension ID.
 .TP
 .B EDITOR
 Editor used for

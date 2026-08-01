@@ -10,9 +10,7 @@ trap 'rm -rf "$build_dir"' EXIT
 sandbox=$build_dir/workspace
 state=$build_dir/state
 export CFX_STATE_ROOT=$state
-mkdir -p "$sandbox/templates" "$sandbox/include"
-cp "$repo_root/assets/templates/solution.cpp" "$sandbox/templates/solution.cpp"
-cp -R "$repo_root/assets/include/cp" "$sandbox/include/cp"
+mkdir -p "$sandbox"
 
 for removed_alias in new run rerun get cc bundle stress fail; do
     if alias_output=$(
@@ -37,7 +35,8 @@ fi
 problem_dir=$sandbox/codeforces/99991/A
 sample_dir=$state/codeforces/99991/A/samples
 mkdir -p "$problem_dir/cases" "$sample_dir"
-cp "$repo_root/assets/templates/solution.cpp" "$problem_dir/solution.cpp"
+cp "$repo_root/solution.cpp" "$problem_dir/solution.cpp"
+cmp "$repo_root/solution.cpp" "$problem_dir/solution.cpp"
 
 if alias_output=$(
     cd "$problem_dir"

@@ -5,7 +5,7 @@ set -euo pipefail
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 manifest=$script_dir/manifest.json
-extension_id_file=$repo_root/assets/browser/extension-id
+extension_id_file=$script_dir/extension-id
 
 if ! command -v zip >/dev/null 2>&1; then
     echo "browser package: zip is required" >&2
@@ -28,7 +28,7 @@ manifest_key=$(
     sed -n 's/^[[:space:]]*"key":[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest"
 )
 if [[ ! -f $extension_id_file ]]; then
-    echo "browser package: missing assets/browser/extension-id" >&2
+    echo "browser package: missing src/browser/extension-id" >&2
     exit 1
 fi
 extension_id=$(tr -d '[:space:]' < "$extension_id_file")
@@ -37,7 +37,7 @@ if [[ -z $manifest_key ]]; then
     exit 1
 fi
 if [[ ! $extension_id =~ ^[a-p]{32}$ ]]; then
-    echo "browser package: assets/browser/extension-id is not a Chrome extension ID" >&2
+    echo "browser package: src/browser/extension-id is not a Chrome extension ID" >&2
     exit 1
 fi
 

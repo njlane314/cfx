@@ -24,9 +24,7 @@ wait_for_log() {
 
 sandbox=$build_dir/workspace
 state=$build_dir/state
-mkdir -p "$sandbox/templates" "$sandbox/include"
-cp "$repo_root/assets/templates/solution.cpp" "$sandbox/templates/solution.cpp"
-cp -R "$repo_root/assets/include/cp" "$sandbox/include/cp"
+mkdir -p "$sandbox"
 export CFX_STATE_ROOT=$state
 
 git -C "$sandbox" init -q -b main
@@ -70,6 +68,7 @@ grep -q 'Imported 2 samples' <<<"$start_output"
 grep -q 'Opened codeforces/99993/C/solution.cpp' <<<"$start_output"
 problem_dir=$sandbox/codeforces/99993/C
 sample_dir=$state/codeforces/99993/C/samples
+cmp "$repo_root/solution.cpp" "$problem_dir/solution.cpp"
 test -f "$problem_dir/problem.json"
 test -f "$sample_dir/01.in"
 test -f "$sample_dir/02.out"
