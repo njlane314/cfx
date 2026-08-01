@@ -13,7 +13,7 @@
   function cleanUrl(location) {
     const url = new URL(location.href);
     url.hash = "";
-    if (/^(?:m[123]|mirror)\.codeforces\.com$/i.test(url.hostname)) {
+    if (/^(?:m3|mirror)\.codeforces\.com$/i.test(url.hostname)) {
       url.hostname = "codeforces.com";
       url.search = "";
     }

@@ -83,8 +83,6 @@ async function main() {
   assert.deepEqual(manifest.content_scripts[0].js, ["samples.js", "submission.js", "connector.js"]);
   const contentScriptMatches = manifest.content_scripts.flatMap(script => script.matches || []);
   for (const match of [
-    "https://m1.codeforces.com/contest/*/problem/*",
-    "https://m2.codeforces.com/contest/*/problem/*",
     "https://m3.codeforces.com/contest/*/problem/*",
     "https://mirror.codeforces.com/contest/*/problem/*",
     "https://codeforces.com/problemset/status*",
@@ -238,7 +236,7 @@ async function main() {
   assert.match(conflictingFetch.error, /another fetch operation/);
   const trailingSlashFetch = await send(fetchState("load"), {
     ...fetchSender,
-    url: "https://m1.codeforces.com/contest/71/problem/A/"
+    url: "https://m3.codeforces.com/contest/71/problem/A/"
   });
   assert.equal(trailingSlashFetch.value.operation, fetchOperation);
   assert.equal((await send({
@@ -248,8 +246,6 @@ async function main() {
     position: 1
   }, fetchSender)).value.value.position, 1);
   for (const origin of [
-    "https://m1.codeforces.com",
-    "https://m2.codeforces.com",
     "https://m3.codeforces.com",
     "https://mirror.codeforces.com"
   ]) {
@@ -293,7 +289,7 @@ async function main() {
   await send(fetchState("save", fetchOperation, fetchValue), wrongFetchPathSender);
   assert.deepEqual(await send(fetchState("load"), {
     ...wrongFetchPathSender,
-    url: "https://m1.codeforces.com/contest/71/problem/B"
+    url: "https://m3.codeforces.com/contest/71/problem/B"
   }), {ok: true, value: null});
   assert.equal(stored.has(background.fetchStateKey(13, fetchOperation)), true);
   await send(fetchState("remove", fetchOperation), wrongFetchPathSender);
@@ -301,7 +297,7 @@ async function main() {
   const mirrorSave = await send(fetchState("save", fetchOperation, fetchValue), {
     ...fetchSender,
     tab: {...fetchSender.tab, id: 14},
-    url: "https://m1.codeforces.com/contest/71/problem/A"
+    url: "https://m3.codeforces.com/contest/71/problem/A"
   });
   assert.equal(mirrorSave.ok, false);
   assert.match(mirrorSave.error, /invalid pending fetch/);

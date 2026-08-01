@@ -265,7 +265,7 @@ async function fetchFlowTests() {
     }
   }));
   await initial.dispatchFragment();
-  assert.equal(initialLocation.replaced, "https://m1.codeforces.com/contest/71/problem/A");
+  assert.equal(initialLocation.replaced, "https://m3.codeforces.com/contest/71/problem/A");
   assert.deepEqual(initialMessages.map(message => message.route || message.action), [
     "save", "ready", "advance"
   ]);
@@ -279,7 +279,7 @@ async function fetchFlowTests() {
 
   const resumedMessages = [];
   const resumedLocation = locationFor(
-    "/contest/71/problem/A", "https://m1.codeforces.com"
+    "/contest/71/problem/A", "https://m3.codeforces.com"
   );
   const resumed = createConnector(environment({
     document: formDocument(),
@@ -295,7 +295,7 @@ async function fetchFlowTests() {
     }
   }));
   assert.equal(await resumed.resumePendingFetch(), true);
-  assert.equal(resumedLocation.replaced, "https://m2.codeforces.com/contest/71/problem/A");
+  assert.equal(resumedLocation.replaced, "https://mirror.codeforces.com/contest/71/problem/A");
   assert.deepEqual(resumedMessages.map(message => message.route || message.action), [
     "load", "ready", "advance"
   ]);
@@ -306,7 +306,7 @@ async function fetchFlowTests() {
   challengeDocument.title = "Just a moment...";
   challengeDocument.body.textContent = "Enable JavaScript and cookies to continue";
   const challengeLocation = locationFor(
-    "/contest/71/problem/A", "https://m2.codeforces.com"
+    "/contest/71/problem/A", "https://m3.codeforces.com"
   );
   const challenge = createConnector(environment({
     document: challengeDocument,
@@ -315,14 +315,14 @@ async function fetchFlowTests() {
     async fetch() { throw new Error("unexpected API fetch"); },
     async sendMessage(message) {
       if (message.type === "cfx-fetch-state") {
-        return {ok: true, value: message.action === "load" ? pending(2) : null};
+        return {ok: true, value: message.action === "load" ? pending(1) : null};
       }
       return {ok: true, status: 200, body: "{}"};
     }
   }));
   await challenge.resumePendingFetch();
   assert.equal(challengeClock.value, 23000);
-  assert.equal(challengeLocation.replaced, "https://m3.codeforces.com/contest/71/problem/A");
+  assert.equal(challengeLocation.replaced, "https://mirror.codeforces.com/contest/71/problem/A");
 
   const resolvedMessages = [];
   const resolvedClock = {value: 20000};
@@ -330,7 +330,7 @@ async function fetchFlowTests() {
   resolvedDocument.title = "Just a moment...";
   resolvedDocument.body.textContent = "Your browser is being checked";
   const resolvedLocation = locationFor(
-    "/contest/71/problem/A", "https://m2.codeforces.com"
+    "/contest/71/problem/A", "https://m3.codeforces.com"
   );
   const resolved = createConnector(environment({
     document: resolvedDocument,
@@ -347,7 +347,7 @@ async function fetchFlowTests() {
     async sendMessage(message) {
       resolvedMessages.push(message);
       if (message.type === "cfx-fetch-state") {
-        return {ok: true, value: message.action === "load" ? pending(2) : null};
+        return {ok: true, value: message.action === "load" ? pending(1) : null};
       }
       return {ok: true, status: 200, body: "{}"};
     }
@@ -372,7 +372,7 @@ async function fetchFlowTests() {
     async sendMessage(message) {
       successMessages.push(message);
       if (message.type === "cfx-fetch-state") {
-        return {ok: true, value: message.action === "load" ? pending(3) : null};
+        return {ok: true, value: message.action === "load" ? pending(1) : null};
       }
       return {ok: true, status: 200, body: "{}"};
     }
@@ -397,7 +397,7 @@ async function fetchFlowTests() {
     async sendMessage(message) {
       failedMessages.push(message);
       if (message.type === "cfx-fetch-state") {
-        return {ok: true, value: message.action === "load" ? pending(4) : null};
+        return {ok: true, value: message.action === "load" ? pending(2) : null};
       }
       return {ok: true, status: 200, body: "{}"};
     }
@@ -430,8 +430,6 @@ async function main() {
   }), "https://codeforces.com/contest/71/problem/A");
   const origins = [
     "https://codeforces.com",
-    "https://m1.codeforces.com",
-    "https://m2.codeforces.com",
     "https://m3.codeforces.com",
     "https://mirror.codeforces.com"
   ];
@@ -442,12 +440,12 @@ async function main() {
     );
   }
   assert.equal(
-    nextProblemUrl(locationFor("/contest/71/problem/A", origins[0]), 3),
+    nextProblemUrl(locationFor("/contest/71/problem/A", origins[0]), 1),
     "https://mirror.codeforces.com/contest/71/problem/A"
   );
   assert.equal(
     nextProblemUrl(locationFor("/contest/71/problem/A/", origins[1]), 1),
-    "https://m2.codeforces.com/contest/71/problem/A"
+    "https://mirror.codeforces.com/contest/71/problem/A"
   );
   assert.equal(nextProblemUrl(locationFor(
     "/contest/71/problem/A", "https://evil.codeforces.com"

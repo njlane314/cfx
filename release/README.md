@@ -15,7 +15,7 @@ git push origin "v$version"
 Before tagging, match `src/browser/manifest.json` to the tag and complete the
 Chrome Web Store checklist in `src/browser/STORE.md`.
 
-Confirm the native, metadata, demo, publication, and optional Homebrew jobs.
+Confirm the native, metadata, publication, and optional Homebrew jobs.
 Enable immutable releases in the repository settings, then run:
 
 ```sh
@@ -30,7 +30,6 @@ A `vX.Y.Z` tag produces:
 cfx-X.Y.Z-{macos,linux}-{arm64,x86_64}.tar.gz
 cfx-X.Y.Z-source.tar.gz
 cfx-connector-X.Y.Z.zip
-cfx-X.Y.Z-demo-20s.mp4
 SHA256SUMS
 ```
 
@@ -59,8 +58,7 @@ repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh attestation verify cfx-1.2.3-macos-arm64.tar.gz --repo "$repo"
 ```
 
-Every artifact has GitHub build provenance. The demo gate requires exactly
-20 seconds, 1920x1080, one video stream, and no audio.
+Every artifact has GitHub build provenance.
 
 For an Apple-signed archive:
 

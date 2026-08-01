@@ -86,7 +86,7 @@ grep -q 'cached:' <<<"$cached_output"
     cd "$problem_dir"
     "$repo_root/cfx" --root "$sandbox" bundle
 ) >"$build_dir/bundled.cpp"
-if grep -q '#include "cp/' "$build_dir/bundled.cpp"; then
+if grep -Eq '#include[[:space:]]*[<"]cp/' "$build_dir/bundled.cpp"; then
     echo "judge workflow: bundle retained a cp include" >&2
     exit 1
 fi

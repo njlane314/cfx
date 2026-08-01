@@ -21,12 +21,6 @@ cfx \- the small, auditable, two-command Codeforces workflow
 .B cfx
 .RB [ \-\-root
 .IR directory ]
-.B sync
-.RI [ contest | problem ]
-.br
-.B cfx
-.RB [ \-\-root
-.IR directory ]
 .B test
 .RI [ options ]
 .RI [ problem ]
@@ -82,9 +76,6 @@ directory; and opens
 The second tests and checked-compiles the exact bundled source, submits it
 with the contest form in the signed-in browser, and waits for the Codeforces
 verdict.
-After final judging,
-.B cfx sync
-reconciles the saved submissions before the archive is published.
 .SH COMMANDS
 .TP
 .I problem
@@ -154,31 +145,14 @@ Only an
 .B OK
 verdict on
 .B TESTS
-is archived as Accepted.
-When the archive has
-.B git config cfx.record commit
-set, that acceptance creates one local commit.
+is reported as Accepted.
 A
 .B PRETESTS
-verdict or known pending submission preserves its exact source and receipt in
-external state and exits 2; a final non-Accepted verdict exits 1.
+verdict or known pending submission exits 2; a final non-Accepted verdict
+exits 1.
 No Codeforces password or session cookie is read or stored by
 .BR cfx ,
 which never pushes.
-.TP
-.BR sync " [" contest | problem "]"
-Recheck exact saved submission IDs after final judging.
-Repeated runs are safe and no solution is resubmitted.
-With
-.B git config cfx.record commit
-set, only
-.B OK
-on
-.B TESTS
-creates a narrow local commit.
-Without an argument, reconcile every saved submission.
-.B cfx
-never pushes; do not publish a solution archive during a round.
 .TP
 .BR help " [" command "]"
 Display general help or help for one command.
@@ -314,15 +288,16 @@ Default brute-force implementation.
 Fetched problem metadata and resource limits.
 .TP
 .I include/cp/
-Submission-safe headers providing debugging, disjoint-set union, Fenwick tree,
-modular integers, Knuth-Morris-Pratt matching,
+Extensionless, submission-safe headers providing contracts, debugging,
+disjoint sets, Fenwick and segment trees, modular integers,
+Knuth-Morris-Pratt matching,
 .BR chmin ,
 and
 .BR chmax .
 .TP
 .I $XDG_STATE_HOME/cfx/workspaces/
-Fetched samples, build cache, stress failures, current-problem state, exact
-submission artifacts, and pending and final receipts. When
+Fetched samples, build cache, stress failures, current-problem state, and
+prepared submission artifacts. When
 .B XDG_STATE_HOME
 is unset, cfx uses
 .IR $HOME/.local/state/cfx/workspaces/ .
@@ -372,32 +347,22 @@ the verdict was
 on
 .BR TESTS .
 For
-.BR sync ,
-no selected submission remains pending or has a final non-Accepted verdict.
-For
 .BR "test \-\-remote-check" ,
 all inputs completed within their limits; output correctness remains unchecked.
 .TP
 .B 1
-Tests or stress checking failed, or submit or sync reported a final
-non-Accepted verdict.
+Tests or stress checking failed, or submit reported a final non-Accepted
+verdict.
 .TP
 .B 2
-Usage was invalid, an operational error occurred, or submission or
-reconciliation remains pending or requires manual completion.
+Usage was invalid, an operational error occurred, or submission remains
+pending or requires manual completion.
 .SH EXAMPLES
 Fetch and solve a problem:
 .PP
 .nf
 cfx 71A
 cfx submit
-.fi
-.PP
-After final judging, record confirmed acceptances and publish explicitly:
-.PP
-.nf
-cfx sync 71
-git push
 .fi
 .PP
 For a problem with multiple valid outputs:

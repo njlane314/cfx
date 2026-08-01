@@ -1,0 +1,113 @@
+#pragma once
+
+#include <cstddef>
+#include <iostream>
+#include <ranges>
+#include <source_location>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+
+namespace cp::detail {
+
+inline constexpr std::size_t debug_range_limit = 64;
+
+template <class T> struct is_product : std::false_type {};
+template <class A, class B> struct is_product<std::pair<A, B>> : std::true_type {};
+template <class... Ts> struct is_product<std::tuple<Ts...>> : std::true_type {};
+
+template <class T>
+concept ostream_insertable = requires(std::ostream& out, const T& value) { out << value; };
+
+inline void debug_string(std::ostream& out, std::string_view text) {
+    out << '"';
+    for (char ch : text) {
+        switch (ch) {
+        case '\\': out << "\\\\"; break;
+        case '"': out << "\\\""; break;
+        case '\n': out << "\\n"; break;
+        case '\r': out << "\\r"; break;
+        case '\t': out << "\\t"; break;
+        default: out << ch;
+        }
+    }
+    out << '"';
+}
+
+template <class T> void debug_write(std::ostream& out, const T& value) {
+    using U = std::remove_cvref_t<T>;
+    if constexpr (std::is_same_v<U, bool>) {
+        out << (value ? "true" : "false");
+    } else if constexpr (std::is_same_v<U, char>) {
+        out << '\'' << value << '\'';
+    } else if constexpr (std::is_pointer_v<U> &&
+                         std::is_same_v<std::remove_cv_t<std::remove_pointer_t<U>>, char>) {
+        value == nullptr ? static_cast<void>(out << "nullptr")
+                         : debug_string(out, std::string_view(value));
+    } else if constexpr (std::is_convertible_v<const T&, std::string_view>) {
+        debug_string(out, std::string_view(value));
+    } else if constexpr (is_product<U>::value) {
+        out << '(';
+        std::size_t index = 0;
+        std::apply(
+            [&](const auto&... items) {
+                (((index++ == 0 ? void() : static_cast<void>(out << ", ")),
+                  debug_write(out, items)),
+                 ...);
+            },
+            value);
+        out << ')';
+    } else if constexpr (std::ranges::input_range<const U&>) {
+        out << '[';
+        std::size_t count = 0;
+        for (const auto& item : value) {
+            if (count != 0) out << ", ";
+            if (count++ == debug_range_limit) {
+                out << "...";
+                break;
+            }
+            debug_write(out, item);
+        }
+        out << ']';
+    } else if constexpr (std::is_enum_v<U>) {
+        out << static_cast<std::underlying_type_t<U>>(value);
+    } else if constexpr (ostream_insertable<U>) {
+        out << value;
+    } else {
+        out << "<?>";
+    }
+}
+
+inline std::string_view debug_base_name(std::string_view path) noexcept {
+    const auto slash = path.find_last_of("/\\");
+    return slash == std::string_view::npos ? path : path.substr(slash + 1);
+}
+
+template <class... Ts>
+void debug_log(std::source_location where, std::string_view expressions, const Ts&... values) {
+    std::cerr << '[' << debug_base_name(where.file_name()) << ':' << where.line() << "] "
+              << expressions;
+    if constexpr (sizeof...(values) != 0) {
+        std::cerr << " = ";
+        if constexpr (sizeof...(values) > 1) std::cerr << '(';
+        std::size_t index = 0;
+        (((index++ == 0 ? void() : static_cast<void>(std::cerr << ", ")),
+          debug_write(std::cerr, values)),
+         ...);
+        if constexpr (sizeof...(values) > 1) std::cerr << ')';
+    }
+    std::cerr << '\n';
+}
+
+} // namespace cp::detail
+
+#if defined(LOCAL)
+#define CP_DEBUG(...)                                                                      \
+    do {                                                                                   \
+        ::cp::detail::debug_log(std::source_location::current(),                            \
+                                #__VA_ARGS__ __VA_OPT__(, ) __VA_ARGS__);                   \
+    } while (false)
+#else
+#define CP_DEBUG(...) do { } while (false)
+#endif

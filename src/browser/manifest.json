@@ -20,8 +20,6 @@
       "matches": [
         "https://codeforces.com/contest/*/problem/*",
         "https://codeforces.com/problemset/problem/*/*",
-        "https://m1.codeforces.com/contest/*/problem/*",
-        "https://m2.codeforces.com/contest/*/problem/*",
         "https://m3.codeforces.com/contest/*/problem/*",
         "https://mirror.codeforces.com/contest/*/problem/*",
         "https://codeforces.com/contest/*/submit*",

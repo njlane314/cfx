@@ -16,8 +16,8 @@ namespace {
 
 namespace fs = std::filesystem;
 
-const std::regex kQuotedInclude(
-    R"regex(^[[:space:]]*#[[:space:]]*include[[:space:]]*"([^"]+)"[[:space:]]*(?://.*)?$)regex");
+const std::regex kBundledInclude(
+    R"regex(^[[:space:]]*#[[:space:]]*include[[:space:]]*(?:"([^"]+)"|<(cp/[^>]+)>)[[:space:]]*(?://.*)?$)regex");
 const std::regex
     kPragmaOnce(R"(^[[:space:]]*#[[:space:]]*pragma[[:space:]]+once[[:space:]]*(?://.*)?$)");
 
@@ -109,8 +109,8 @@ class BundleRun {
         std::string line;
         while (std::getline(input, line)) {
             std::smatch match;
-            if (std::regex_match(line, match, kQuotedInclude)) {
-                const auto include_name = match[1].str();
+            if (std::regex_match(line, match, kBundledInclude)) {
+                const auto include_name = (match[1].matched ? match[1] : match[2]).str();
                 const auto include = resolve_include(include_name, source.parent_path());
                 const auto cycle = std::find(stack_.begin(), stack_.end(), include);
                 if (cycle != stack_.end()) {
@@ -150,15 +150,9 @@ class BundleRun {
 
 } // namespace
 
-Bundler::Bundler(fs::path root) : root_(normalized_root(root)) {}
-
-std::string Bundler::bundle(const fs::path& source) const {
-    const auto source_path = source.is_absolute() ? source : root_ / source;
-    return BundleRun(root_).run(source_path);
-}
-
 std::string bundle(const fs::path& source, const fs::path& root) {
-    return Bundler(root).bundle(source);
+    const fs::path normalized = normalized_root(root);
+    return BundleRun(normalized).run(source.is_absolute() ? source : normalized / source);
 }
 
 } // namespace cfx

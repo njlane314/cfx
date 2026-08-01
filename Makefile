@@ -5,7 +5,6 @@ MAN1DIR ?= $(MANDIR)/man1
 
 CFX := ./cfx
 CFX_PATH := $(abspath $(CFX))
-LEGACY_CFX_PATH := $(abspath ./bin/cfx)
 MANPAGE := release/cfx.1
 TEST_RUNNER := tests/run.sh
 TEST_SCRIPTS := $(shell find tests -type f -name '*.sh' -print)
@@ -109,8 +108,7 @@ install:
 	mkdir -p "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MAN1DIR)"
 	@dst="$(DESTDIR)$(BINDIR)/cfx"; \
 	target=$$(readlink "$$dst" 2>/dev/null || true); \
-	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && \
-		[ "$$target" != "$(CFX_PATH)" ] && [ "$$target" != "$(LEGACY_CFX_PATH)" ]; then \
+	if { [ -e "$$dst" ] || [ -L "$$dst" ]; } && [ "$$target" != "$(CFX_PATH)" ]; then \
 		echo "refusing to overwrite: $$dst" >&2; \
 		exit 1; \
 	fi; \

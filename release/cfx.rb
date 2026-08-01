@@ -25,7 +25,7 @@ class Cfx < Formula
     (cases/"case-1.in").write "8\n"
     (cases/"case-1.out").write "YES\n"
     (testpath/"codeforces/4/A/solution.cpp").write <<~CPP
-      #include "cp/prelude.hpp"
+      #include <cp/types>
       #include <iostream>
       int main() {
           cp::i64 weight = 0;

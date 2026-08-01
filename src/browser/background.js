@@ -23,8 +23,6 @@
   const primaryOrigin = "https://codeforces.com";
   const problemOrigins = [
     primaryOrigin,
-    "https://m1.codeforces.com",
-    "https://m2.codeforces.com",
     "https://m3.codeforces.com",
     "https://mirror.codeforces.com"
   ];

@@ -205,8 +205,11 @@ void test_separate_asset_root() {
     const ScopedEnvironment environment("CFX_ASSET_ROOT", assets.path().string());
 
     write(assets.path() / "templates" / "solution.cpp", "// installed template\n");
-    write(assets.path() / "include" / "cp" / "value.hpp",
-          "#pragma once\nconstexpr int value = 7;\n");
+    write(assets.path() / "include" / "cp" / "detail",
+          "#pragma once\nconstexpr int detail = 7;\n");
+    write(assets.path() / "include" / "cp" / "value",
+          "#pragma once\n#include \"cp/detail\"\nconstexpr int value = detail;\n"
+          "constexpr int header_source = 7;\n");
 
     const auto problem = cfx::Problem::parse("71A", workspace.path());
     const auto created = cfx::Workspace(workspace.path()).create(problem);
@@ -229,15 +232,26 @@ void test_separate_asset_root() {
             "explicit template overrides archive template");
 
     write(workspace.path() / "solution.cpp",
-          "#include \"cp/value.hpp\"\nint main() { return value; }\n");
+          "#include <cp/value>\nint main() { return value; }\n");
     const std::string installed = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
-    require(installed.find("value = 7") != std::string::npos,
-            "bundle resolves installed library header");
+    require(installed.find("detail = 7") != std::string::npos &&
+                installed.find("header_source = 7") != std::string::npos,
+            "bundle expands installed extensionless library headers transitively");
+    require(installed.find("#include <cp/value>") == std::string::npos,
+            "bundle removes cp angle include");
+    require(installed.find("#include \"cp/detail\"") == std::string::npos,
+            "bundle removes transitive quoted include");
 
-    write(workspace.path() / "include" / "cp" / "value.hpp",
-          "#pragma once\nconstexpr int value = 8;\n");
+    write(workspace.path() / "include" / "cp" / "detail",
+          "#pragma once\nconstexpr int detail = 8;\n");
+    write(workspace.path() / "include" / "cp" / "value",
+          "#pragma once\n#include \"cp/detail\"\nconstexpr int value = detail;\n"
+          "constexpr int header_source = 8;\n");
     const std::string local = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
-    require(local.find("value = 8") != std::string::npos,
+    require(local.find("detail = 8") != std::string::npos &&
+                local.find("header_source = 8") != std::string::npos &&
+                local.find("detail = 7") == std::string::npos &&
+                local.find("header_source = 7") == std::string::npos,
             "workspace library header overrides installed asset");
 }
 
@@ -305,15 +319,15 @@ void test_nested_and_repeated_bundling() {
     write(root / "main.cpp", "#include <vector>\n"
                              "#include \"parts/first.hpp\"\n"
                              "#include \"sibling.hpp\"\n"
-                             "#include \"shared.hpp\"\n"
+                             "#include <cp/shared>\n"
                              "int main() { return first + sibling + shared; }\n");
     write(root / "parts" / "first.hpp", "#pragma once\n"
                                         "#include \"nested/value.hpp\"\n"
-                                        "#include \"../shared.hpp\"\n"
+                                        "#include \"cp/shared\"\n"
                                         "constexpr int first = nested;\n");
     write(root / "parts" / "nested" / "value.hpp", "#pragma once\nconstexpr int nested = 1;\n");
     write(root / "sibling.hpp", "#pragma once\nconstexpr int sibling = 2;\n");
-    write(root / "shared.hpp", "#pragma once\nconstexpr int shared = 3;\n");
+    write(root / "include" / "cp" / "shared", "#pragma once\nconstexpr int shared = 3;\n");
 
     const auto output = cfx::bundle(root / "main.cpp", root);
     require(output.find("#include <vector>") != std::string::npos, "system include preserved");
@@ -331,8 +345,8 @@ void test_nested_and_repeated_bundling() {
 void test_include_root_and_errors() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
-    write(root / "include" / "cp" / "value.hpp", "#pragma once\nconstexpr int value = 4;\n");
-    write(root / "source.cpp", "#include \"cp/value.hpp\"\nint answer = value;\n");
+    write(root / "include" / "cp" / "value", "#pragma once\nconstexpr int value = 4;\n");
+    write(root / "source.cpp", "#include <cp/value>\nint answer = value;\n");
     require(cfx::bundle("source.cpp", root).find("constexpr int value = 4;") != std::string::npos,
             "workspace include root");
 
@@ -340,9 +354,10 @@ void test_include_root_and_errors() {
     require_bundle_error([&] { static_cast<void>(cfx::bundle("missing.cpp", root)); },
                          "not-there.hpp");
 
-    write(root / "a.hpp", "#include \"b.hpp\"\n");
-    write(root / "b.hpp", "#include \"a.hpp\"\n");
-    require_bundle_error([&] { static_cast<void>(cfx::bundle("a.hpp", root)); }, "cycle");
+    write(root / "include" / "cp" / "a", "#include \"cp/b\"\n");
+    write(root / "include" / "cp" / "b", "#include <cp/a>\n");
+    write(root / "cycle.cpp", "#include <cp/a>\n");
+    require_bundle_error([&] { static_cast<void>(cfx::bundle("cycle.cpp", root)); }, "cycle");
 }
 
 } // namespace

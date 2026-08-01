@@ -18,8 +18,6 @@
   const challengeDelay = 3000;
   const problemOrigins = [
     "https://codeforces.com",
-    "https://m1.codeforces.com",
-    "https://m2.codeforces.com",
     "https://m3.codeforces.com",
     "https://mirror.codeforces.com"
   ];

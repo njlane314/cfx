@@ -21,28 +21,32 @@ fi
 build_dir=$(mktemp -d "${TMPDIR:-/tmp}/cfx-library.XXXXXX")
 trap 'rm -rf "$build_dir"' EXIT
 cfx_std=${CFX_STD:-c++20}
+common_flags=(
+    "-std=$cfx_std"
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Werror
+    "-I$repo_root/assets/include"
+)
+
+headers=(types utility contract debug disjoint_set fenwick_tree segment_tree modint kmp)
+for header in "${headers[@]}"; do
+    printf '#include <cp/%s>\nint main() {}\n' "$header" |
+        "${compiler_command[@]}" "${common_flags[@]}" -x c++ -fsyntax-only -
+done
 
 for source in "$script_dir"/test_*.cpp; do
     name=$(basename "$source" .cpp)
     "${compiler_command[@]}" \
-        "-std=$cfx_std" \
-        -Wall \
-        -Wextra \
-        -Wpedantic \
-        -Werror \
-        -I"$repo_root/assets/include" \
+        "${common_flags[@]}" \
         "$source" \
         -o "$build_dir/$name"
     "$build_dir/$name"
 done
 
 "${compiler_command[@]}" \
-    "-std=$cfx_std" \
-    -Wall \
-    -Wextra \
-    -Wpedantic \
-    -Werror \
-    -I"$repo_root/assets/include" \
+    "${common_flags[@]}" \
     "$repo_root/assets/templates/solution.cpp" \
     -o "$build_dir/solution-template"
 

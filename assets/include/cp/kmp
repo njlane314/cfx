@@ -1,0 +1,71 @@
+#pragma once
+
+#include "cp/contract"
+#include "cp/types"
+
+#include <cstddef>
+#include <limits>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace cp {
+
+// Knuth-Morris-Pratt matching over bytes; an empty pattern matches every boundary.
+class kmp_matcher {
+  public:
+    explicit kmp_matcher(std::string pattern)
+        : pattern_(std::move(pattern)), prefix_(checked_size(pattern_.size())) {
+        for (index_type index = 1; index < size(); ++index) {
+            index_type border = prefix_[offset(index - 1)];
+            while (border > 0 && pattern_[offset(index)] != pattern_[offset(border)])
+                border = prefix_[offset(border - 1)];
+            if (pattern_[offset(index)] == pattern_[offset(border)]) ++border;
+            prefix_[offset(index)] = border;
+        }
+    }
+
+    [[nodiscard]] std::string_view pattern() const noexcept { return pattern_; }
+    [[nodiscard]] const std::vector<index_type>& prefix_table() const noexcept { return prefix_; }
+
+    [[nodiscard]] std::vector<index_type> find_all(std::string_view text) const {
+        const index_type text_size = checked_size(text.size());
+        std::vector<index_type> matches;
+        if (pattern_.empty()) {
+            matches.reserve(offset(text_size) + 1);
+            for (index_type index = 0; index <= text_size; ++index) matches.push_back(index);
+            return matches;
+        }
+
+        index_type matched = 0;
+        for (index_type index = 0; index < text_size; ++index) {
+            while (matched > 0 && text[offset(index)] != pattern_[offset(matched)])
+                matched = prefix_[offset(matched - 1)];
+            if (text[offset(index)] == pattern_[offset(matched)]) ++matched;
+            if (matched == size()) {
+                matches.push_back(index + 1 - size());
+                matched = prefix_[offset(matched - 1)];
+            }
+        }
+        return matches;
+    }
+
+  private:
+    std::string pattern_;
+    std::vector<index_type> prefix_;
+
+    [[nodiscard]] index_type size() const noexcept {
+        return static_cast<index_type>(prefix_.size());
+    }
+    static index_type checked_size(std::size_t count) {
+        CP_EXPECT(count <= static_cast<std::size_t>(std::numeric_limits<index_type>::max()),
+                  "kmp: input is too large");
+        return static_cast<index_type>(count);
+    }
+    static std::size_t offset(index_type index) noexcept {
+        return static_cast<std::size_t>(index);
+    }
+};
+
+} // namespace cp

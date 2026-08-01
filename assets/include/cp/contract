@@ -1,0 +1,34 @@
+#pragma once
+
+#include <cstdio>
+#include <cstdlib>
+#include <source_location>
+#include <string_view>
+
+namespace cp::detail {
+
+[[noreturn]] inline void contract_fail(
+    std::string_view condition, std::string_view message,
+    std::source_location where = std::source_location::current()) noexcept {
+    std::fprintf(stderr, "cp: %.*s\n  expected: %.*s\n  at: %s:%u\n",
+                 static_cast<int>(message.size()), message.data(),
+                 static_cast<int>(condition.size()), condition.data(), where.file_name(),
+                 where.line());
+    std::abort();
+}
+
+} // namespace cp::detail
+
+#if defined(LOCAL)
+#define CP_EXPECT(condition, message)                                                          \
+    do {                                                                                       \
+        if (!(condition)) [[unlikely]]                                                         \
+            ::cp::detail::contract_fail(#condition, (message));                                \
+    } while (false)
+#else
+#define CP_EXPECT(condition, message)                                                          \
+    do {                                                                                       \
+        (void)sizeof(condition);                                                               \
+        (void)sizeof(message);                                                                 \
+    } while (false)
+#endif

@@ -15,7 +15,8 @@ tar -xzf "$archive" -C "$work"
 package=${archive##*/}
 package=${package%.tar.gz}
 for path in bin/cfx libexec/cfx share/cfx/templates/solution.cpp \
-    share/cfx/include/cp/prelude.hpp share/cfx/browser/extension-id \
+    share/cfx/include/cp/types share/cfx/include/cp/segment_tree \
+    share/cfx/browser/extension-id \
     share/man/man1/cfx.1 LICENSE; do
     [[ -e $work/$package/$path ]] || { echo "release test: package lacks $path" >&2; exit 1; }
 done
@@ -30,7 +31,7 @@ mkdir -p "$workspace/codeforces/4/A/cases"
 printf '8\n' >"$workspace/codeforces/4/A/cases/case-1.in"
 printf 'YES\n' >"$workspace/codeforces/4/A/cases/case-1.out"
 cat >"$workspace/codeforces/4/A/solution.cpp" <<'CPP'
-#include "cp/prelude.hpp"
+#include <cp/types>
 #include <iostream>
 
 int main() {
@@ -57,10 +58,7 @@ ruby -c "$work/head.rb" >/dev/null
 ruby -c "$work/stable.rb" >/dev/null
 cmp -s "$work/head.rb" "$root/release/cfx.rb"
 
-demo=$work/dist/cfx-0.0.0-test-demo-20s.mp4
-printf 'release demo fixture\n' >"$demo"
-"$script_dir/checksums.sh" "$archive" "$demo" >"$work/SHA256SUMS"
-grep -q '  cfx-0.0.0-test-demo-20s.mp4$' "$work/SHA256SUMS"
+"$script_dir/checksums.sh" "$archive" >"$work/SHA256SUMS"
 (
     cd "$(dirname "$archive")"
     if command -v sha256sum >/dev/null 2>&1; then

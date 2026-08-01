@@ -32,7 +32,6 @@ export CFX_STATE_ROOT=$state
 git -C "$sandbox" init -q -b main
 git -C "$sandbox" config user.name 'cfx tests'
 git -C "$sandbox" config user.email 'cfx@example.invalid'
-git -C "$sandbox" config cfx.record commit
 printf '# fixture\n' >"$sandbox/README.md"
 git -C "$sandbox" add README.md
 git -C "$sandbox" commit -q -m 'Initialise fixture archive'
@@ -106,25 +105,11 @@ grep -q 'Tests passed: 20' <<<"$submit_output"
 grep -q 'Time: 46 ms' <<<"$submit_output"
 grep -q 'Memory: 100.0KiB' <<<"$submit_output"
 grep -Eq '^Judging wait: [0-9]+\.[0-9]{3}s$' <<<"$submit_output"
-grep -q 'Recorded: 99993C' <<<"$submit_output"
 grep -q '"target":"99993C"' "$submission_payload"
 grep -q "\"language\":\"$language\"" "$submission_payload"
 grep -q '"source":' "$submission_payload"
 grep -q '#include' "$submission_payload"
 grep -q '^submit$' "$browser_log"
-grep -q '^Solve Codeforces 99993C — Browser bridge problem$' \
-    < <(git -C "$sandbox" log -1 --format=%s)
-git -C "$sandbox" log -1 --format=%B | grep -q '^Codeforces-Submission: 123456789$'
-test -f "$problem_dir/submissions/123456789.cpp"
-test -f "$state/receipts/99993C/123456789/receipt.json"
-grep -q '"schemaVersion": 2' "$state/receipts/99993C/123456789/receipt.json"
-grep -q '"participantType": "PRACTICE"' "$state/receipts/99993C/123456789/receipt.json"
-grep -q '"testset": "TESTS"' "$state/receipts/99993C/123456789/receipt.json"
-grep -q '"state": "accepted"' "$state/receipts/99993C/123456789/receipt.json"
-grep -q '"sourceDigest"' "$state/receipts/99993C/123456789/receipt.json"
-git -C "$sandbox" show --format= --name-only HEAD | grep -q '^codeforces/99993/C/solution.cpp$'
-git -C "$sandbox" show --format= --name-only HEAD | \
-    grep -q '^codeforces/99993/C/submissions/123456789.cpp$'
 
 if tle_output=$(
     cd "$sandbox"

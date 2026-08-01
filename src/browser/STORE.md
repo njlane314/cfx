@@ -1,34 +1,14 @@
 # Chrome Web Store release
 
-Build the upload archive and listing assets from the repository root:
+Build the upload archive from the repository root:
 
 ```sh
 make browser-package
-src/browser/demo/build.sh
 ```
 
 The resulting `.build/browser/cfx-connector-<version>.zip` has
-`manifest.json` at its root and contains only runtime files.
-`src/browser/demo/build.sh` runs the real CLI and loopback bridge against isolated
-fixtures, then writes the following untracked publication assets:
-
-- `.build/browser/store/icon-128.png`
-- `.build/browser/store/screenshot-1280x800.png`
-- `.build/browser/store/promo-small-440x280.png`
-- `.build/browser/store/promo-marquee-1400x560.png`
-- `.build/browser/store/demo-20s.mp4`
-
-Asset rendering requires macOS, Swift, and Node.js. Runtime packaging requires
-Node.js and `zip`; neither command downloads a dependency.
-
-No raster or vector artwork is stored in the repository. The build scripts,
-dependency-free icon renderer, and Swift listing renderer are the auditable
-source of every visual. Packaging injects the required generated icons and
-their manifest entries only into the temporary ZIP stage, so loading the
-image-free source directory unpacked also remains valid. The screenshot and
-video use output captured from an actual isolated `cfx 71A` fetch, compile,
-test, bridge, and verdict flow; the fixture prevents a network request or real
-submission. The MP4 is silent, 1920 x 1080, and exactly 20 seconds long.
+`manifest.json` at its root and contains only runtime files. Packaging requires
+Node.js and `zip`, generates the extension icons, and downloads no dependency.
 
 ## Release checklist
 
@@ -37,15 +17,7 @@ submission. The MP4 is silent, 1920 x 1080, and exactly 20 seconds long.
   and the category is **Developer Tools**.
 - [ ] Store public key and item ID have replaced the development values in
   `src/browser/manifest.json` and `assets/browser/extension-id`.
-- [ ] 128 x 128 store icon: `.build/browser/store/icon-128.png`.
-- [ ] 1280 x 800 screenshot:
-  `.build/browser/store/screenshot-1280x800.png`.
-- [ ] 440 x 280 small promo tile:
-  `.build/browser/store/promo-small-440x280.png`.
-- [ ] 1400 x 560 marquee tile:
-  `.build/browser/store/promo-marquee-1400x560.png`.
-- [ ] The 20-second MP4 has been uploaded to YouTube and its URL supplied as
-  the localized promotional video.
+- [ ] Listing artwork meets the current Chrome Web Store requirements.
 - [ ] Privacy policy URL:
   `https://github.com/njlane314/cfx/blob/main/src/browser/PRIVACY.md`.
 - [ ] Website URL: `https://github.com/njlane314/cfx`.
@@ -62,8 +34,7 @@ submission. The MP4 is silent, 1920 x 1080, and exactly 20 seconds long.
 4. Replace the development `key` in `src/browser/manifest.json` with that
    public key, and replace `assets/browser/extension-id` with the item ID.
 5. Rebuild and upload the final ZIP.
-6. Paste the copy below, upload the generated artwork, and add the YouTube demo
-   URL.
+6. Paste the copy below and upload the listing artwork.
 7. In **Privacy**, make the disclosures below and certify Limited Use.
 8. In **Distribution**, select **Public** visibility and the intended regions.
 9. Submit for review with automatic publishing enabled, or publish the approved
@@ -121,9 +92,8 @@ Permission justification:
 
 - `codeforces.com`: read problem titles, limits, and samples after
   `cfx PROBLEM`; fill and post the submission selected by `cfx submit`.
-- `m1.codeforces.com`, `m2.codeforces.com`, `m3.codeforces.com`, and
-  `mirror.codeforces.com`: read only the requested public problem when the main
-  Codeforces host does not serve its statement.
+- `m3.codeforces.com` and `mirror.codeforces.com`: read only the requested
+  public problem when the main Codeforces host does not serve its statement.
 - `127.0.0.1`: communicate with one short-lived, loopback-only `cfx`
   listener protected by an unguessable operation token.
 - `storage`: retain a pending fetch port, token, and problem path during mirror
@@ -159,9 +129,7 @@ cfx submit
 
 The reviewer must be signed in to Codeforces to exercise a live submission. A
 problem fetch can be tested without an account. The extension intentionally has
-no toolbar popup; its visible result is the CLI output shown in the listing
-screenshot. The complete no-network fixture can be reproduced with
-`src/browser/demo/build.sh`.
+no toolbar popup; its visible result is the CLI output.
 
 ## Current policy references
 

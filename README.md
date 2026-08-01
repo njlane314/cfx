@@ -32,11 +32,10 @@ Create a solution archive:
 ```sh
 git init -b main solutions
 cd solutions
-git config cfx.record commit
 ```
 
-The archive name, path, and remote are arbitrary. `cfx.record=commit` is
-required for local acceptance commits.
+The archive name, path, and remote are arbitrary. Version the authored files
+with Git as usual; `cfx` does not commit or push.
 
 ## CHROME SETUP
 
@@ -70,10 +69,6 @@ From the solution archive:
 cfx 71A
 # edit solution.cpp
 cfx submit
-
-# after final judging
-cfx sync 71
-git push
 ```
 
 For a problem with multiple valid outputs:
@@ -87,22 +82,16 @@ cfx submit --remote-check 2250B
 `solution.cpp`, and remembers the problem. If Codeforces is unavailable, the
 connector tries its official contest mirrors. `cfx submit` tests and
 checked-compiles the exact bundled source, submits it with the contest form in
-Chrome, and waits for the verdict. Only `OK` on `TESTS` is archived as
-Accepted. With `cfx.record=commit`, it is committed immediately. `PRETESTS` and
-known pending submissions preserve their exact source and receipt in external
-state.
+Chrome, and waits for the verdict. Only `OK` on `TESTS` is reported as
+Accepted. `PRETESTS` and known pending submissions remain pending.
 
 `--remote-check` is explicit per command. Builds and runs must succeed within
 their limits; only comparison with the sample answer is skipped. Local success
 does not establish correctness. Codeforces decides it.
 
-After final judging, `cfx sync [CONTEST|PROBLEM]` reconciles the saved submission
-IDs. A numeric contest is the ID in `/contest/<id>/`, not the displayed round
-number. Sync is idempotent, never resubmits, and requires `cfx.record=commit` to
-make narrow local commits. Submit and sync return 0 on success, 1 for a final
-non-Accepted verdict, and 2 while pending, requiring manual completion, or
-failing operationally. Never push a public solution archive during a round;
-`cfx` never pushes.
+Submit returns 0 for `OK` on `TESTS`, 1 for a final non-Accepted verdict, and 2
+while pending, requiring manual completion, or failing operationally. Never
+push a public solution archive during a round; `cfx` never pushes.
 
 ## FILES
 
@@ -116,14 +105,13 @@ solutions/
     ├── solution.cpp
     ├── problem.json
     ├── cases/                      optional authored tests
-    ├── stress/                     optional generator and brute force
-    └── submissions/                exact accepted bundle, when needed
+    └── stress/                     optional generator and brute force
 ```
 
 Only durable, authored files belong here. Fetched samples, builds, run output,
-failures, prepared submissions, and receipts remain external. Empty optional
-directories need no placeholder files. A tracked `.cfx/solution.cpp` overrides
-the packaged starter.
+failures, and prepared submissions remain external. Empty optional directories
+need no placeholder files. A tracked `.cfx/solution.cpp` overrides the packaged
+starter.
 
 ## LIBRARY
 
@@ -132,11 +120,13 @@ header-only components live under `assets/include/cp/` and are included
 selectively:
 
 ```cpp
-#include "cp/ds/fenwick.hpp"
+#include <cp/fenwick_tree>
 ```
 
-Each header is self-contained and uses the `cp` namespace. `cfx bundle` expands
-local headers into submission-ready source.
+The extensionless headers are self-contained and use the `cp` namespace:
+`types`, `utility`, `contract`, `debug`, `disjoint_set`, `fenwick_tree`,
+`segment_tree`, `modint`, and `kmp`. They are ordinary files, not a managed
+catalogue; `cfx` expands only the headers a solution includes.
 
 ## CHECKS
 
@@ -145,18 +135,6 @@ make verify
 ```
 
 Run `cfx help` for advanced commands.
-
-## DEMONSTRATION
-
-```sh
-src/browser/demo/build.sh
-```
-
-This runs a real, isolated `cfx 71A` fetch-and-submit workflow, then renders its
-captured output as a silent 20-second 1080p demonstration and the Chrome Web
-Store artwork under `.build/browser/store/`. It never contacts Codeforces or
-submits externally. See [src/browser/STORE.md](src/browser/STORE.md) for
-publication details.
 
 ## LICENSE
 

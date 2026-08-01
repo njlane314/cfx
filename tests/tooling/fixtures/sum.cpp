@@ -1,4 +1,4 @@
-#include "cp/prelude.hpp"
+#include <cp/types>
 
 #include <iostream>
 
