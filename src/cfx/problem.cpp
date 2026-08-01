@@ -3,8 +3,6 @@
 #include "cfx/runtime.hpp"
 
 #include <algorithm>
-#include <cctype>
-#include <regex>
 #include <system_error>
 #include <utility>
 
@@ -13,45 +11,19 @@ namespace {
 
 namespace fs = std::filesystem;
 
-const std::regex kCanonical(R"(^([0-9]+)([A-Za-z][A-Za-z0-9]*)$)");
-const std::regex kAlternate(R"(^([A-Za-z][A-Za-z0-9]*)\.([0-9]+)$)");
-const std::regex
-    kProblemsetUrl(R"(codeforces\.com/problemset/problem/([0-9]+)/([A-Za-z][A-Za-z0-9]*))",
-                   std::regex::icase);
-const std::regex kContestUrl(R"(codeforces\.com/contest/([0-9]+)/problem/([A-Za-z][A-Za-z0-9]*))",
-                             std::regex::icase);
-
-std::string trim(std::string_view value) {
-    auto first = value.begin();
-    auto last = value.end();
-    while (first != last && std::isspace(static_cast<unsigned char>(*first)) != 0) {
-        ++first;
-    }
-    while (first != last && std::isspace(static_cast<unsigned char>(*(last - 1))) != 0) {
-        --last;
-    }
-    return {first, last};
-}
-
-std::string upper(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](char c) {
-        return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    });
-    return value;
-}
-
 bool valid_contest(std::string_view value) {
     return !value.empty() && std::all_of(value.begin(), value.end(), [](char c) {
-        return std::isdigit(static_cast<unsigned char>(c)) != 0;
+        return c >= '0' && c <= '9';
     });
 }
 
 bool valid_index(std::string_view value) {
-    if (value.empty() || std::isalpha(static_cast<unsigned char>(value.front())) == 0) {
+    if (value.empty() || value.front() < 'A' || value.front() > 'Z') {
         return false;
     }
-    return std::all_of(value.begin() + 1, value.end(),
-                       [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0; });
+    return std::all_of(value.begin() + 1, value.end(), [](char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    });
 }
 
 fs::path normalized_absolute(const fs::path& path) {
@@ -94,7 +66,7 @@ std::optional<Problem> infer_canonical_layout(const fs::path& location, const fs
 } // namespace
 
 Problem::Problem(std::string contest_id, std::string index, fs::path root)
-    : contest_id_(std::move(contest_id)), index_(upper(std::move(index))),
+    : contest_id_(std::move(contest_id)), index_(std::move(index)),
       root_(normalized_absolute(root)) {
     if (!valid_contest(contest_id_) || !valid_index(index_)) {
         throw ProblemError("invalid Codeforces problem; expected a numeric contest and an "
@@ -103,37 +75,12 @@ Problem::Problem(std::string contest_id, std::string index, fs::path root)
 }
 
 Problem Problem::parse(std::string_view value, const fs::path& root) {
-    const auto token = trim(value);
-    std::smatch match;
-    if (std::regex_match(token, match, kCanonical)) {
-        return Problem(match[1].str(), match[2].str(), root);
+    const std::size_t split = value.find_first_not_of("0123456789");
+    if (split != 0 && split != std::string_view::npos) {
+        return Problem(std::string(value.substr(0, split)), std::string(value.substr(split)), root);
     }
-    if (std::regex_match(token, match, kAlternate)) {
-        return Problem(match[2].str(), match[1].str(), root);
-    }
-    if (std::regex_search(token, match, kProblemsetUrl) ||
-        std::regex_search(token, match, kContestUrl)) {
-        return Problem(match[1].str(), match[2].str(), root);
-    }
-
-    fs::path possible_path(token);
-    if (possible_path.has_parent_path()) {
-        if (const auto inferred = infer(possible_path, root)) {
-            return *inferred;
-        }
-    }
-
-    throw ProblemError("cannot parse problem '" + token +
-                       "'; expected 71A, A.71, A 71, a Codeforces URL, or a problem path");
-}
-
-Problem Problem::parse(std::string_view index, std::string_view contest_id, const fs::path& root) {
-    const auto clean_index = trim(index);
-    const auto clean_contest = trim(contest_id);
-    if (!valid_index(clean_index) || !valid_contest(clean_contest)) {
-        throw ProblemError("cannot parse problem; expected two arguments like A 71");
-    }
-    return Problem(clean_contest, clean_index, root);
+    throw ProblemError("cannot parse problem '" + std::string(value) +
+                       "'; expected an ID like 71A");
 }
 
 std::optional<Problem> Problem::infer(const fs::path& location, const fs::path& root) {

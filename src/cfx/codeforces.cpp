@@ -242,34 +242,6 @@ std::string validate_submission(const Json& submission, std::uint64_t contest,
 
 } // namespace
 
-std::vector<std::string> parse_contest_indexes(std::string_view response) {
-    const Json document = parse_json(response);
-    const Json& result = api_result(document);
-    const Json& problems = result.at("problems");
-    std::vector<std::string> indexes;
-    for (const Json& value : problems.array()) {
-        const Json* index = value.find("index");
-        if (index != nullptr && index->is_string() &&
-            std::find(indexes.begin(), indexes.end(), index->string()) == indexes.end()) {
-            indexes.push_back(index->string());
-        }
-    }
-    if (indexes.empty()) {
-        throw std::runtime_error("Codeforces API returned no contest problems");
-    }
-    return indexes;
-}
-
-std::vector<std::string> fetch_contest_indexes(const std::string& contest_id) {
-    const std::string url = api_base() + "/contest.standings?contestId=" + query_value(contest_id);
-    try {
-        return parse_contest_indexes(api_get(url, 20));
-    } catch (const ApiRequestError& error) {
-        throw std::runtime_error("cannot fetch Codeforces contest " + contest_id + ":\n" +
-                                 error.what());
-    }
-}
-
 CodeforcesSubmission parse_submission_status(std::string_view response,
                                              const std::string& contest_id,
                                              const std::string& problem_index,

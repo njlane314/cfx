@@ -21,8 +21,6 @@ class Problem {
 
     static Problem parse(std::string_view value,
                          const std::filesystem::path& root = std::filesystem::current_path());
-    static Problem parse(std::string_view index, std::string_view contest_id,
-                         const std::filesystem::path& root = std::filesystem::current_path());
     static std::optional<Problem>
     infer(const std::filesystem::path& location,
           const std::filesystem::path& root = std::filesystem::current_path());

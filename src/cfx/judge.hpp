@@ -23,7 +23,6 @@ struct ProblemLimits {
 
 enum class CaseVerdict {
     accepted,
-    output_unchecked,
     wrong_answer,
     time_limit_exceeded,
     memory_limit_exceeded,
@@ -41,7 +40,6 @@ struct TestCaseResult {
 struct TestOptions {
     bool checked = false;
     bool rebuild = false;
-    bool remote_check = false;
     std::optional<std::chrono::milliseconds> timeout;
     bool concise = false;
     std::optional<std::uint64_t> memory_limit_bytes;

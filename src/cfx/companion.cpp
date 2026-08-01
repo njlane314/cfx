@@ -6,21 +6,12 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cerrno>
 #include <cmath>
-#include <csignal>
-#include <cstring>
 #include <iomanip>
-#include <iostream>
 #include <limits>
-#include <netdb.h>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/types.h>
 #include <system_error>
 #include <unistd.h>
 
@@ -87,134 +78,35 @@ void recover_sample_transaction(const Problem& problem) {
     }
 }
 
-std::string lowercase(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](char character) {
-        return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+Problem problem_from_url(std::string_view url, const fs::path& root) {
+    constexpr std::string_view origin = "https://codeforces.com/";
+    if (!url.starts_with(origin)) {
+        throw std::runtime_error("problem package has an invalid URL");
+    }
+    url.remove_prefix(origin.size());
+    if (url.ends_with('/')) url.remove_suffix(1);
+
+    std::string_view contest;
+    std::string index;
+    if (url.starts_with("contest/")) {
+        url.remove_prefix(8);
+        const std::size_t split = url.find("/problem/");
+        contest = url.substr(0, split);
+        index = split == std::string_view::npos ? "" : std::string(url.substr(split + 9));
+    } else if (url.starts_with("problemset/problem/")) {
+        url.remove_prefix(19);
+        const std::size_t split = url.find('/');
+        contest = url.substr(0, split);
+        index = split == std::string_view::npos ? "" : std::string(url.substr(split + 1));
+    }
+    std::transform(index.begin(), index.end(), index.begin(), [](unsigned char character) {
+        return static_cast<char>(std::toupper(character));
     });
-    return value;
-}
-
-std::size_t content_length(std::string_view headers) {
-    std::size_t start = 0;
-    while (start < headers.size()) {
-        const std::size_t end = headers.find("\r\n", start);
-        const std::string_view line =
-            headers.substr(start, (end == std::string_view::npos ? headers.size() : end) - start);
-        const std::size_t colon = line.find(':');
-        if (colon != std::string_view::npos &&
-            lowercase(std::string(line.substr(0, colon))) == "content-length") {
-            std::string value(line.substr(colon + 1));
-            std::size_t parsed = 0;
-            const unsigned long long length = std::stoull(value, &parsed);
-            while (parsed < value.size() &&
-                   std::isspace(static_cast<unsigned char>(value[parsed])) != 0) {
-                ++parsed;
-            }
-            if (parsed != value.size() || length > 16ULL * 1024ULL * 1024ULL) {
-                throw std::runtime_error("invalid HTTP Content-Length");
-            }
-            return static_cast<std::size_t>(length);
-        }
-        if (end == std::string_view::npos) {
-            break;
-        }
-        start = end + 2;
+    try {
+        return Problem(std::string(contest), std::move(index), root);
+    } catch (const ProblemError&) {
+        throw std::runtime_error("problem package has an invalid URL");
     }
-    throw std::runtime_error("HTTP request has no Content-Length");
-}
-
-std::string receive_request(int client) {
-    std::string request;
-    char buffer[8192];
-    std::optional<std::size_t> wanted;
-    std::size_t header_size = 0;
-
-    while (true) {
-        const ssize_t count = ::recv(client, buffer, sizeof(buffer), 0);
-        if (count > 0) {
-            request.append(buffer, static_cast<std::size_t>(count));
-        } else if (count == 0) {
-            break;
-        } else if (errno != EINTR) {
-            throw std::runtime_error("cannot read HTTP request: " +
-                                     std::string(std::strerror(errno)));
-        }
-
-        if (!wanted) {
-            const std::size_t marker = request.find("\r\n\r\n");
-            if (marker != std::string::npos) {
-                header_size = marker + 4;
-                wanted = content_length(std::string_view(request).substr(0, marker + 2));
-            }
-        }
-        if (wanted && request.size() >= header_size + *wanted) {
-            return request.substr(0, header_size + *wanted);
-        }
-        if (request.size() > 16U * 1024U * 1024U + 64U * 1024U) {
-            throw std::runtime_error("HTTP request is too large");
-        }
-    }
-    throw std::runtime_error("incomplete HTTP request");
-}
-
-void send_response(int client, int status, const std::string& message) {
-    const std::string reason = status == 200 ? "OK" : "Bad Request";
-    const std::string response = "HTTP/1.1 " + std::to_string(status) + " " + reason +
-                                 "\r\n"
-                                 "Content-Type: text/plain; charset=utf-8\r\n"
-                                 "Content-Length: " +
-                                 std::to_string(message.size()) +
-                                 "\r\n"
-                                 "Connection: close\r\n\r\n" +
-                                 message;
-    std::size_t sent = 0;
-    while (sent < response.size()) {
-        const ssize_t count = ::send(client, response.data() + sent, response.size() - sent, 0);
-        if (count > 0) {
-            sent += static_cast<std::size_t>(count);
-        } else if (count == 0 || (count < 0 && errno != EINTR)) {
-            return;
-        }
-    }
-}
-
-int listening_socket(const std::string& host, int port) {
-    if (port < 1 || port > 65535) {
-        throw std::runtime_error("port must be between 1 and 65535");
-    }
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
-    addrinfo* addresses = nullptr;
-    const std::string service = std::to_string(port);
-    const int resolved =
-        ::getaddrinfo(host.empty() ? nullptr : host.c_str(), service.c_str(), &hints, &addresses);
-    if (resolved != 0) {
-        throw std::runtime_error("cannot resolve listener address: " +
-                                 std::string(::gai_strerror(resolved)));
-    }
-
-    int server = -1;
-    for (addrinfo* address = addresses; address != nullptr; address = address->ai_next) {
-        server = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-        if (server < 0) {
-            continue;
-        }
-        int enabled = 1;
-        (void)::setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
-        if (::bind(server, address->ai_addr, address->ai_addrlen) == 0 &&
-            ::listen(server, 8) == 0) {
-            break;
-        }
-        ::close(server);
-        server = -1;
-    }
-    ::freeaddrinfo(addresses);
-    if (server < 0) {
-        throw std::runtime_error("cannot listen on " + host + ":" + std::to_string(port));
-    }
-    return server;
 }
 
 } // namespace
@@ -226,7 +118,7 @@ CompanionPackage parse_companion_package(std::string_view payload, const fs::pat
         throw std::runtime_error("problem package has no URL");
     }
     CompanionPackage package{
-        Problem::parse(url, root),
+        problem_from_url(url, root),
         url,
         string_field(document, "name"),
         integer_field(document, "timeLimit"),
@@ -360,46 +252,6 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
         package.samples.size(),
         files_written,
     };
-}
-
-void serve_companion(const fs::path& root, const std::string& host, int port, bool once,
-                     bool force) {
-    (void)std::signal(SIGPIPE, SIG_IGN);
-    const int server = listening_socket(host, port);
-    std::cerr << "listening on http://" << host << ':' << port << '\n';
-    do {
-        const int client = ::accept(server, nullptr, nullptr);
-        if (client < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            ::close(server);
-            throw std::runtime_error("accept failed: " + std::string(std::strerror(errno)));
-        }
-        const timeval deadline{10, 0};
-        (void)::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &deadline, sizeof(deadline));
-        (void)::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &deadline, sizeof(deadline));
-        try {
-            const std::string request = receive_request(client);
-            const std::size_t header_end = request.find("\r\n\r\n");
-            if (!request.starts_with("POST ")) {
-                throw std::runtime_error("only HTTP POST is supported");
-            }
-            const CompanionPackage package =
-                parse_companion_package(std::string_view(request).substr(header_end + 4), root);
-            const ImportResult result = import_companion_package(package, root, force);
-            const std::string message = "imported " + result.problem.id() + " (" +
-                                        std::to_string(result.sample_count) + " samples, " +
-                                        std::to_string(result.files_written) + " files written)\n";
-            send_response(client, 200, message);
-            std::cout << message;
-        } catch (const std::exception& error) {
-            send_response(client, 400, std::string(error.what()) + "\n");
-            std::cerr << "cc: " << error.what() << '\n';
-        }
-        ::close(client);
-    } while (!once);
-    ::close(server);
 }
 
 } // namespace cfx

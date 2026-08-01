@@ -22,7 +22,6 @@ struct SubmissionArtifact {
 
 struct SubmissionOptions {
     bool rebuild = false;
-    bool remote_check = false;
 };
 
 SubmissionArtifact prepare_submission(const std::filesystem::path& root, const Problem& problem,

@@ -36,7 +36,4 @@ CompanionPackage parse_companion_package(std::string_view payload,
 ImportResult import_companion_package(const CompanionPackage& package,
                                       const std::filesystem::path& root, bool force = false);
 
-void serve_companion(const std::filesystem::path& root, const std::string& host, int port,
-                     bool once, bool force);
-
 } // namespace cfx

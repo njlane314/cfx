@@ -71,23 +71,12 @@ cfx 71A
 cfx submit
 ```
 
-For a problem with multiple valid outputs:
-
-```sh
-cfx test --remote-check 2250B
-cfx submit --remote-check 2250B
-```
-
 `cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
 `solution.cpp`, and remembers the problem. If Codeforces is unavailable, the
 connector tries its official contest mirrors. `cfx submit` tests and
 checked-compiles the exact bundled source, submits it with the contest form in
 Chrome, and waits for the verdict. Only `OK` on `TESTS` is reported as
 Accepted. `PRETESTS` and known pending submissions remain pending.
-
-`--remote-check` is explicit per command. Builds and runs must succeed within
-their limits; only comparison with the sample answer is skipped. Local success
-does not establish correctness. Codeforces decides it.
 
 Submit returns 0 for `OK` on `TESTS`, 1 for a final non-Accepted verdict, and 2
 while pending, requiring manual completion, or failing operationally. Never

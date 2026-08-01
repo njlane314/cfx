@@ -105,7 +105,6 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
     Judge judge(root);
     TestOptions test_options;
     test_options.rebuild = options.rebuild;
-    test_options.remote_check = options.remote_check;
     test_options.concise = true;
     test_options.submission_profile = true;
     const TestSummary tests = judge.test(problem, test_options);

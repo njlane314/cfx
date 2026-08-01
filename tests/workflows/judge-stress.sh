@@ -14,9 +14,9 @@ mkdir -p "$sandbox/templates" "$sandbox/include"
 cp "$repo_root/assets/templates/solution.cpp" "$sandbox/templates/solution.cpp"
 cp -R "$repo_root/assets/include/cp" "$sandbox/include/cp"
 
-for removed_alias in new run rerun; do
+for removed_alias in new run rerun get cc bundle; do
     if alias_output=$(
-        "$repo_root/cfx" --root "$sandbox" "$removed_alias" 99991A 2>&1
+        "$repo_root/cfx" --root "$sandbox" "$removed_alias" 2>&1
     ); then
         echo "judge workflow: removed alias '$removed_alias' was accepted" >&2
         exit 1
@@ -29,9 +29,27 @@ for removed_alias in new run rerun; do
     test ! -e "$sandbox/.cfx"
 done
 
-"$repo_root/cfx" --root "$sandbox" get 99991A | grep -q 'created:'
+if "$repo_root/cfx" --root "$sandbox" A 99991 >/dev/null 2>&1; then
+    echo "judge workflow: two-token problem ID was accepted" >&2
+    exit 1
+fi
+
 problem_dir=$sandbox/codeforces/99991/A
 sample_dir=$state/codeforces/99991/A/samples
+mkdir -p "$problem_dir/cases" "$problem_dir/stress" "$sample_dir"
+cp "$repo_root/assets/templates/solution.cpp" "$problem_dir/solution.cpp"
+
+for command in test stress; do
+    if alias_output=$(
+        cd "$problem_dir"
+        "$repo_root/cfx" --root "$sandbox" "$command" --check 2>&1
+    ); then
+        echo "judge workflow: $command accepted removed --check alias" >&2
+        exit 1
+    fi
+    grep -q "$command: unknown option --check" <<<"$alias_output"
+done
+
 cp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
 cp "$fixtures/02.in" "$sample_dir/02.in"
 cp "$fixtures/02.out" "$sample_dir/02.out"
@@ -81,15 +99,6 @@ cached_output=$(
     "$repo_root/cfx" --root "$sandbox" test --checked
 )
 grep -q 'cached:' <<<"$cached_output"
-
-(
-    cd "$problem_dir"
-    "$repo_root/cfx" --root "$sandbox" bundle
-) >"$build_dir/bundled.cpp"
-if grep -Eq '#include[[:space:]]*[<"]cp/' "$build_dir/bundled.cpp"; then
-    echo "judge workflow: bundle retained a cp include" >&2
-    exit 1
-fi
 
 (
     cd "$problem_dir"

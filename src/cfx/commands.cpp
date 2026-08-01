@@ -1,18 +1,14 @@
 #include "commands.hpp"
 
 #include "browser.hpp"
-#include "bundle.hpp"
 #include "codeforces.hpp"
 #include "companion.hpp"
-#include "compiler.hpp"
-#include "file.hpp"
 #include "judge.hpp"
 #include "problem.hpp"
 #include "process.hpp"
 #include "submission.hpp"
 #include "workspace.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -23,7 +19,6 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace cfx::cli {
@@ -44,35 +39,20 @@ daily:
 advanced:
   test [PROBLEM]        build and judge saved samples and cases
   stress [PROBLEM]      compare the solution with a brute force program
-  bundle [PROBLEM]      write submission-ready source
   fail [PROBLEM]        promote the current stress failure
-  cc                    receive samples from Competitive Companion
-  get PROBLEM|CONTEST   create problem files without opening an editor
   help [COMMAND]        show general or command help
 
-Problems are canonically 71A. A.71, A 71 (as two arguments), Codeforces URLs,
-and inference from codeforces/<contest>/<index>/ are supported.
+Problems use canonical IDs such as 71A. Commands also infer the problem from
+codeforces/<contest>/<index>/.
 )";
 
 const std::map<std::string, std::string, std::less<>> kCommandHelp{
-    {"get", R"(usage: cfx get PROBLEM|CONTEST
-
-Create codeforces/<contest>/<index>/ from the archive or packaged solution
-template. A numeric contest fetches indexes from the official Codeforces API.
-)"},
     {"test", R"(usage: cfx test [options] [PROBLEM]
 
 Bundle, compile, and judge samples followed by handwritten cases. The problem
 is inferred when the command runs inside its archive directory. Fetched
-Codeforces time and memory limits are used by default. --remote-check runs
-inputs under their limits without comparing saved answers; output is reported
-unchecked. Options: --checked, --rebuild, --remote-check, --time-limit SECONDS,
---memory-limit MIB, and --output-limit MIB.
-)"},
-    {"bundle", R"(usage: cfx bundle [--output FILE] [PROBLEM]
-
-Recursively expand project-local quoted includes. Output goes to stdout unless
---output is given.
+Codeforces time and memory limits are used by default. Options: --checked,
+--rebuild, --time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
 )"},
     {"stress", R"(usage: cfx stress [options] [PROBLEM]
 
@@ -81,20 +61,13 @@ Options: --gen FILE, --brute FILE, -n/--count N, --seed N, --gen-arg ARG,
 --checked, --rebuild, --time-limit SECONDS, --generator-time-limit SECONDS,
 and --verbose.
 )"},
-    {"cc", R"(usage: cfx cc [--host ADDRESS] [--port PORT] [--once] [--force]
-
-Listen for Competitive Companion JSON and store fetched samples separately
-from handwritten cases. Existing differing pairs require --force.
-)"},
-    {"submit", R"(usage: cfx submit [--manual] [--rebuild] [--remote-check] [PROBLEM]
+    {"submit", R"(usage: cfx submit [--manual] [--rebuild] [PROBLEM]
 
 Run saved tests, create and checked-compile the final bundle, then submit it
 through the installed browser connector and the browser's authenticated
-Codeforces session. --remote-check skips saved-answer comparison only; build or
-execution failures still stop submission, and Codeforces decides correctness.
-If Chrome has no connector, fall back to copying the exact tested source and
-opening the submission page. --manual selects that fallback directly. With no
-PROBLEM, use the current directory or the most recent problem opened by
+Codeforces session. If Chrome has no connector, fall back to copying the exact
+tested source and opening the submission page. --manual selects that fallback
+directly. With no PROBLEM, use the current directory or the most recent problem opened by
 `cfx PROBLEM`; conflicting targets require an explicit ID. No password or
 cookie is read or stored by cfx.
 Exit status is 0 only for `OK` on `TESTS`, 1 for a final non-Accepted verdict,
@@ -151,12 +124,6 @@ int bounded_integer(const std::string& value, const std::string& name, int minim
     return static_cast<int>(parsed);
 }
 
-bool all_digits(std::string_view value) {
-    return !value.empty() && std::all_of(value.begin(), value.end(), [](char character) {
-        return character >= '0' && character <= '9';
-    });
-}
-
 Problem resolve_problem(const std::vector<std::string>& values, const fs::path& root) {
     if (values.empty()) {
         const std::optional<Problem> inferred = Problem::infer(fs::current_path(), root);
@@ -167,9 +134,6 @@ Problem resolve_problem(const std::vector<std::string>& values, const fs::path& 
     }
     if (values.size() == 1) {
         return Problem::parse(values.front(), root);
-    }
-    if (values.size() == 2) {
-        return Problem::parse(values[0], values[1], root);
     }
     throw std::runtime_error("expected at most one problem ID");
 }
@@ -249,51 +213,11 @@ void open_editor(const fs::path& solution) {
     }
 }
 
-int command_get(Arguments arguments, const fs::path& root) {
-    std::vector<std::string> positional;
-    while (!arguments.empty()) {
-        const std::string argument = arguments.take();
-        if (argument == "--help" || argument == "-h") {
-            show_command_help("get");
-            return 0;
-        }
-        if (argument.starts_with("-")) {
-            throw std::runtime_error("get: unknown option " + argument);
-        }
-        positional.push_back(argument);
-    }
-    if (positional.empty() || positional.size() > 2) {
-        throw std::runtime_error("usage: cfx get PROBLEM|CONTEST");
-    }
-
-    cfx::Workspace workspace(root);
-    if (positional.size() == 1 && all_digits(positional.front())) {
-        const std::string contest = positional.front();
-        const std::vector<std::string> indexes = cfx::fetch_contest_indexes(contest);
-        for (const std::string& index : indexes) {
-            const cfx::WorkspaceResult result = workspace.create(Problem(contest, index, root));
-            std::cout << (result.solution_created ? "created: " : "exists: ") << result.solution
-                      << '\n';
-        }
-        return 0;
-    }
-
-    const Problem problem = resolve_problem(positional, root);
-    const cfx::WorkspaceResult result = workspace.create(problem);
-    std::cout << (result.solution_created ? "created: " : "exists: ") << result.solution << '\n';
-    return 0;
-}
-
 int command_problem(const std::vector<std::string>& values, const fs::path& root) {
     const Problem problem = resolve_problem(values, root);
     const cfx::WorkspaceResult workspace = cfx::Workspace(root).create(problem);
 
-    std::string payload;
-    try {
-        payload = cfx::fetch_problem_in_browser(cfx::problem_url(problem));
-    } catch (const std::exception& error) {
-        throw std::runtime_error(std::string(error.what()) + "; use cfx cc --once as a fallback");
-    }
+    const std::string payload = cfx::fetch_problem_in_browser(cfx::problem_url(problem));
     const cfx::CompanionPackage package = cfx::parse_companion_package(payload, root);
     if (package.problem.id() != problem.id()) {
         throw std::runtime_error("browser returned " + package.problem.id() + " while fetching " +
@@ -323,12 +247,10 @@ int command_test(Arguments arguments, const fs::path& root) {
             show_command_help("test");
             return 0;
         }
-        if (argument == "--checked" || argument == "--check") {
+        if (argument == "--checked") {
             options.checked = true;
         } else if (argument == "--rebuild") {
             options.rebuild = true;
-        } else if (argument == "--remote-check") {
-            options.remote_check = true;
         } else if (argument == "--time-limit") {
             options.timeout = duration(arguments.take(), "--time-limit");
         } else if (argument == "--memory-limit") {
@@ -344,35 +266,6 @@ int command_test(Arguments arguments, const fs::path& root) {
     const Problem problem = resolve_problem(positional, root);
     const cfx::TestSummary result = cfx::Judge(root).test(problem, options);
     return result.success() ? 0 : 1;
-}
-
-int command_bundle(Arguments arguments, const fs::path& root) {
-    std::optional<fs::path> output;
-    std::vector<std::string> positional;
-    while (!arguments.empty()) {
-        const std::string argument = arguments.take();
-        if (argument == "--help" || argument == "-h") {
-            show_command_help("bundle");
-            return 0;
-        }
-        if (argument == "--output" || argument == "-o") {
-            output = resolve_path(arguments.take());
-        } else if (argument.starts_with("-")) {
-            throw std::runtime_error("bundle: unknown option " + argument);
-        } else {
-            positional.push_back(argument);
-        }
-    }
-    const Problem problem = resolve_problem(positional, root);
-    const std::string source = cfx::bundle(problem.solution_path(), root);
-    if (!output) {
-        std::cout << source;
-    } else {
-        fs::create_directories(output->parent_path());
-        cfx::write_text(*output, source);
-        std::cout << *output << '\n';
-    }
-    return 0;
 }
 
 int command_stress(Arguments arguments, const fs::path& root) {
@@ -400,7 +293,7 @@ int command_stress(Arguments arguments, const fs::path& root) {
             options.seed = static_cast<std::uint64_t>(value);
         } else if (argument == "--gen-arg") {
             options.generator_arguments.push_back(arguments.take());
-        } else if (argument == "--checked" || argument == "--check") {
+        } else if (argument == "--checked") {
             options.checked = true;
         } else if (argument == "--rebuild") {
             options.rebuild = true;
@@ -450,33 +343,6 @@ int command_fail(Arguments arguments, const fs::path& root) {
     return 0;
 }
 
-int command_cc(Arguments arguments, const fs::path& root) {
-    std::string host = "127.0.0.1";
-    int port = 27121;
-    bool once = false;
-    bool force = false;
-    while (!arguments.empty()) {
-        const std::string argument = arguments.take();
-        if (argument == "--help" || argument == "-h") {
-            show_command_help("cc");
-            return 0;
-        }
-        if (argument == "--host") {
-            host = arguments.take();
-        } else if (argument == "--port") {
-            port = bounded_integer(arguments.take(), "--port", 1, 65535);
-        } else if (argument == "--once") {
-            once = true;
-        } else if (argument == "--force") {
-            force = true;
-        } else {
-            throw std::runtime_error("cc: unknown option " + argument);
-        }
-    }
-    cfx::serve_companion(root, host, port, once, force);
-    return 0;
-}
-
 int command_submit(Arguments arguments, const fs::path& root) {
     cfx::SubmissionOptions options;
     bool manual = false;
@@ -489,8 +355,6 @@ int command_submit(Arguments arguments, const fs::path& root) {
         }
         if (argument == "--rebuild") {
             options.rebuild = true;
-        } else if (argument == "--remote-check") {
-            options.remote_check = true;
         } else if (argument == "--manual") {
             manual = true;
         } else if (argument.starts_with("-")) {

@@ -41,12 +41,9 @@ fs::path select_root(std::vector<std::string>& values) {
 
 int dispatch(std::string command, Arguments arguments, const fs::path& root) {
     using namespace cfx::cli;
-    if (command == "get") return command_get(std::move(arguments), root);
     if (command == "test") return command_test(std::move(arguments), root);
-    if (command == "bundle") return command_bundle(std::move(arguments), root);
     if (command == "stress") return command_stress(std::move(arguments), root);
     if (command == "fail") return command_fail(std::move(arguments), root);
-    if (command == "cc") return command_cc(std::move(arguments), root);
     if (command == "submit") return command_submit(std::move(arguments), root);
 
     std::vector<std::string> problem{std::move(command)};

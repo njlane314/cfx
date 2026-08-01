@@ -131,19 +131,14 @@ void test_problem_parsing() {
 
     const auto canonical = cfx::Problem::parse("71A", root);
     require(canonical.id() == "71A", "canonical ID");
-    require(cfx::Problem::parse("a.71", root).id() == "71A", "alternate spelling");
-    require(cfx::Problem::parse("a", "71", root).id() == "71A", "two-token spelling");
-    require(cfx::Problem::parse("https://codeforces.com/problemset/problem/71/A", root).id() ==
-                "71A",
-            "problemset URL");
-    require(
-        cfx::Problem::parse("https://codeforces.com/contest/2227/problem/c?locale=en", root).id() ==
-            "2227C",
-        "contest URL");
-    require(cfx::Problem::parse("codeforces/2227/B/solution.cpp", root).id() == "2227B",
-            "workspace path");
-    require_problem_error(
-        [&] { static_cast<void>(cfx::Problem::parse("solutions/A.71.cpp", root)); });
+    for (const std::string invalid : {
+             "71a",
+             "A.71",
+             "https://codeforces.com/contest/71/problem/A",
+             "codeforces/71/A",
+         }) {
+        require_problem_error([&] { static_cast<void>(cfx::Problem::parse(invalid, root)); });
+    }
 }
 
 void test_problem_paths_and_inference() {

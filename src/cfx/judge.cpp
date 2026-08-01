@@ -26,7 +26,7 @@ constexpr std::uint64_t kMebibyte = 1024U * 1024U;
 struct Case {
     std::string name;
     fs::path input;
-    std::optional<fs::path> expected;
+    fs::path expected;
 };
 
 bool natural_less(const std::string& left, const std::string& right) {
@@ -107,7 +107,7 @@ std::vector<Case> cases_for(const Problem& problem) {
             directory_cases.push_back(Case{
                 prefix + entry.path().filename().string(),
                 entry.path(),
-                fs::is_regular_file(answer) ? std::optional<fs::path>(answer) : std::nullopt,
+                answer,
             });
         }
         std::sort(directory_cases.begin(), directory_cases.end(),
@@ -348,7 +348,7 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         if (!options.concise) {
             std::cout << "==> " << test_case.name << '\n';
         }
-        if (!test_case.expected && !options.remote_check) {
+        if (!fs::is_regular_file(test_case.expected)) {
             std::cout << (options.concise ? test_case.name + ": " : "")
                       << "missing expected output: " << test_case.input.stem().string() << ".out\n";
             summary.cases.push_back(TestCaseResult{
@@ -388,17 +388,7 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
 
         show_stream_if_nonempty("stderr", error_path, std::cerr);
         const std::string actual = read_text(actual_path);
-        if (options.remote_check) {
-            std::cout << (options.concise ? test_case.name + ": " : "")
-                      << "output unchecked (" << resource_usage(result, summary.limits) << ")\n"
-                      << "actual:\n"
-                      << preview(actual) << (actual.empty() || actual.back() == '\n' ? "" : "\n");
-            ++summary.passed;
-            summary.cases.push_back(
-                TestCaseResult{test_case.name, CaseVerdict::output_unchecked, result});
-            continue;
-        }
-        const std::string expected = read_text(*test_case.expected);
+        const std::string expected = read_text(test_case.expected);
         if (normalize_output(actual) == normalize_output(expected)) {
             if (!options.concise) {
                 std::cout << "OK (" << resource_usage(result, summary.limits) << ")\n";
@@ -416,9 +406,7 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
                 TestCaseResult{test_case.name, CaseVerdict::wrong_answer, result});
         }
     }
-    if (options.remote_check) {
-        std::cout << summary.passed << '/' << summary.total << " ran; output unchecked";
-    } else if (options.concise) {
+    if (options.concise) {
         std::cout << summary.passed << '/' << summary.total << " tests passed";
     } else {
         std::cout << summary.passed << '/' << summary.total << " passed";
@@ -581,8 +569,6 @@ std::string verdict_name(CaseVerdict verdict) {
     switch (verdict) {
     case CaseVerdict::accepted:
         return "OK";
-    case CaseVerdict::output_unchecked:
-        return "output unchecked";
     case CaseVerdict::wrong_answer:
         return "WA";
     case CaseVerdict::time_limit_exceeded:

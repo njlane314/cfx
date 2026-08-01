@@ -1,8 +1,8 @@
 .\" Copyright (c) 2026 njlane314
 .\" SPDX-License-Identifier: MIT
-.TH CFX 1 "July 26, 2026" "cfx" "General Commands Manual"
+.TH CFX 1 "August 1, 2026" "cfx" "General Commands Manual"
 .SH NAME
-cfx \- the small, auditable, two-command Codeforces workflow
+cfx \- small, auditable Codeforces workflow
 .SH SYNOPSIS
 .B cfx
 .RB [ \-\-root
@@ -15,7 +15,6 @@ cfx \- the small, auditable, two-command Codeforces workflow
 .B submit
 .RB [ \-\-manual ]
 .RB [ \-\-rebuild ]
-.RB [ \-\-remote-check ]
 .RI [ problem ]
 .br
 .B cfx
@@ -38,140 +37,77 @@ cfx \- the small, auditable, two-command Codeforces workflow
 .B fail
 .RI [ problem ]
 .br
-.B cfx
-.RB [ \-\-root
-.IR directory ]
-.B bundle
-.RB [ \-o
-.IR file ]
-.RI [ problem ]
-.br
-.B cfx
-.RB [ \-\-root
-.IR directory ]
-.B get
-.IR problem | contest
-.br
-.B cfx
-.RB [ \-\-root
-.IR directory ]
-.B cc
-.RI [ options ]
-.br
 .B cfx help
 .RI [ command ]
 .SH DESCRIPTION
 .B cfx
 manages an ordinary C++20 Codeforces solution archive.
-The in-contest workflow is:
+The usual workflow is:
 .PP
 .nf
 cfx 71A
 cfx submit
 .fi
 .PP
-The first command imports the problem, samples, and limits; creates its archive
-directory; and opens
+The first command fetches the statement metadata and samples through the
+browser connector, creates the problem directory, and opens
 .IR solution.cpp .
 The second tests and checked-compiles the exact bundled source, submits it
-with the contest form in the signed-in browser, and waits for the Codeforces
-verdict.
+through the signed-in browser, and waits for the Codeforces verdict.
 .SH COMMANDS
 .TP
 .I problem
-Fetch a Codeforces problem through the browser connector, import its samples
-and limits, create its archive directory, open
+Fetch a problem, create
+.IR codeforces/contest/index/ ,
+open
 .IR solution.cpp ,
-and remember it as the current problem. Official contest mirrors are tried when
-Codeforces does not serve the statement.
-.TP
-.BI "get " problem
-Create one problem directory without opening the editor.
-.TP
-.BI "get " contest
-Create directories for every problem in a numeric contest.
-Problem indexes are obtained from the official Codeforces API.
+and remember it as the current problem.
+Official contest mirrors are tried when the primary statement is unavailable.
 .TP
 .BR test " [" problem "]"
 Bundle and compile the solution, then run fetched samples followed by
 handwritten cases.
-Report OK, WA, RE, TLE, MLE, or OLE together with CPU time, wall time, and
-peak memory.
-With
-.BR \-\-remote-check ,
-report an output preview as unchecked instead of comparing it with the saved
-answer. This does not establish correctness.
-Builds are cached by source, compiler version, and compiler flags.
+Every input requires a matching expected-output file.
+Report OK, WA, RE, TLE, MLE, or OLE with resource use.
 .TP
 .BR stress " [" problem "]"
 Compile the solution, generator, and brute-force implementation.
-Generate deterministic inputs and compare the solution output with the
-brute-force output.
-The default files are
+Generate deterministic inputs and compare both outputs.
+The default helper files are
 .I stress/gen.cpp
 and
 .IR stress/brute.cpp .
-The generator receives the current seed as its final argument.
-On a mismatch, the input, expected output, actual output, and seed are recorded
-in external cfx state.
-.B cfx
-does not write the generator or brute-force source.
+The generator receives the seed as its final argument.
 .TP
 .BR fail " [" problem "]"
-Promote the latest recorded stress mismatch to
+Promote the latest stress mismatch to
 .I cases/stress-N.in
 and
 .IR cases/stress-N.out .
-The mismatch then becomes a permanent regression test.
-.TP
-.BR bundle " [" problem "]"
-Recursively expand project-local quoted includes into a single
-submission-ready source file.
-System includes are preserved, and repeated local headers are included once.
-.TP
-.B cc
-Listen for Competitive Companion JSON and import its samples.
-Fetched samples remain separate from handwritten cases.
 .TP
 .BR submit " [" problem "]"
-Run every saved test, build the submission profile, checked-compile the exact
-bundled source, and submit it through Chrome.
-With
-.BR \-\-remote-check ,
-execution failures still stop submission, but Codeforces validates the output.
-Wait for judging and report the verdict, tests passed, execution time, and
-memory consumption.
-Only an
+Run every saved test, checked-compile the exact bundled source, submit it
+through Chrome, and report the verdict and official resource use.
+Only
 .B OK
-verdict on
+on
 .B TESTS
-is reported as Accepted.
-A
+is Accepted.
 .B PRETESTS
-verdict or known pending submission exits 2; a final non-Accepted verdict
-exits 1.
-No Codeforces password or session cookie is read or stored by
-.BR cfx ,
-which never pushes.
+and known pending submissions exit 2; a final non-Accepted verdict exits 1.
+When the connector is unavailable, copy the tested source to the clipboard and
+open the submission page.
+No password or session cookie is read or stored.
 .TP
 .BR help " [" command "]"
 Display general help or help for one command.
 .SH TEST OPTIONS
 .TP
 .B \-\-checked
-Compile with stricter warnings, AddressSanitizer, and
-UndefinedBehaviorSanitizer.
+Compile with strict warnings, AddressSanitizer, and UndefinedBehaviorSanitizer.
 .TP
 .B \-\-rebuild
-Ignore an existing cached binary.
-.TP
-.B \-\-remote-check
-For
-.B test
-and
-.BR submit ,
-run saved inputs under their limits without comparing output to the saved
-answers. Print an output preview and leave correctness to Codeforces.
+Ignore a cached binary.
 .TP
 .BI "\-\-time-limit " seconds
 Override the fetched time limit.
@@ -180,29 +116,25 @@ Override the fetched time limit.
 Override the fetched memory limit.
 .TP
 .BI "\-\-output-limit " MiB
-Override the output limit.
-The default is 64 MiB.
+Override the output limit, which defaults to 64 MiB.
 .SH STRESS OPTIONS
 .TP
 .BI "\-\-gen " file
-Use an alternative generator.
+Use another generator.
 .TP
 .BI "\-\-brute " file
-Use an alternative brute-force implementation.
+Use another brute-force implementation.
 .TP
 .BR \-n " " count ", " \-\-count " " count
 Run
 .I count
-generated tests.
-The default is 100.
+generated tests; the default is 100.
 .TP
 .BI "\-\-seed " number
-Set the initial seed.
-The default is 1.
+Set the first seed; the default is 1.
 .TP
 .BI "\-\-gen-arg " argument
-Pass an additional argument to the generator.
-This option may be repeated.
+Pass an argument to the generator; may be repeated.
 .TP
 .B \-\-checked
 Checked-compile the solution and brute-force implementation.
@@ -217,119 +149,77 @@ Set the solution and brute-force timeout.
 Set the generator timeout.
 .TP
 .B \-\-verbose
-Print the result of every seed.
+Print every seed result.
 .SH OTHER OPTIONS
 .TP
-.BR \-o " " file ", " \-\-output " " file
-Write bundled source to
-.I file
-instead of standard output.
-.TP
 .B \-\-manual
-Copy the tested bundle to the clipboard and open the Codeforces submission
-page instead of using the connector.
-.TP
-.BI "\-\-host " address
-Set the Competitive Companion listening address.
-The default is 127.0.0.1.
-.TP
-.BI "\-\-port " port
-Set the Competitive Companion port.
-The default is 27121.
-.TP
-.B \-\-once
-Import one Competitive Companion package and exit.
-.TP
-.B \-\-force
-Replace existing fetched samples when their contents differ.
+Copy the tested source to the clipboard and open the submission page instead
+of using the connector.
 .TP
 .BI "\-\-root " directory
 Use
 .I directory
-as the solution archive root.
+as the archive root.
 .SH PROBLEM IDENTIFIERS
-Problems may be specified as:
-.PP
-.nf
-71A
-A.71
-A 71
-https://codeforces.com/contest/71/problem/A
-codeforces/71/A
-.fi
-.PP
+Explicit problems use only the canonical Codeforces form, for example
+.BR 71A .
 When run beneath
 .IR codeforces/contest/index/ ,
-commands infer the problem automatically.
+commands infer the problem.
 .B submit
 may also use the most recently opened problem.
-A numeric contest argument is the ID in
-.IR /contest/id/ ,
-not the displayed round number.
 .SH FILES
 .TP
 .I codeforces/contest/index/solution.cpp
 User solution.
 .TP
 .I .cfx/solution.cpp
-Optional archive-owned starter template. It takes precedence over the packaged
-template.
+Optional archive-owned starter template.
 .TP
 .I codeforces/contest/index/cases/
 Handwritten and promoted regression cases.
 .TP
-.I codeforces/contest/index/stress/gen.cpp
-Default stress generator.
-.TP
-.I codeforces/contest/index/stress/brute.cpp
-Default brute-force implementation.
+.I codeforces/contest/index/stress/
+Optional generator and brute-force source.
 .TP
 .I codeforces/contest/index/problem.json
 Fetched problem metadata and resource limits.
 .TP
 .I include/cp/
-Extensionless, submission-safe headers providing contracts, debugging,
-disjoint sets, Fenwick and segment trees, modular integers,
-Knuth-Morris-Pratt matching,
-.BR chmin ,
-and
-.BR chmax .
+Extensionless, submission-safe competitive-programming headers.
 .TP
 .I $XDG_STATE_HOME/cfx/workspaces/
-Fetched samples, build cache, stress failures, current-problem state, and
-prepared submission artifacts. When
+Fetched samples, builds, run output, stress failures, current-problem state,
+and prepared submissions.
+When
 .B XDG_STATE_HOME
 is unset, cfx uses
 .IR $HOME/.local/state/cfx/workspaces/ .
 .SH ENVIRONMENT
 .TP
 .B CXX
-C++ compiler command.
-The default is
+C++ compiler command; the default is
 .BR c++ .
 .TP
 .B CFX_STD
-C++ language standard.
-The default is
+C++ language standard; the default is
 .BR c++20 .
 .TP
 .B CFX_CXXFLAGS
 Additional compiler flags.
 .TP
 .B CFX_ROOT
-Explicit solution archive root.
+Explicit archive root.
 .TP
 .B CFX_STATE_ROOT
-Explicit runtime-state root, primarily for isolated environments and tests.
+Explicit runtime-state root.
 .TP
 .B EDITOR
-Editor used when opening
+Editor used for
 .IR solution.cpp .
 .TP
 .B VISUAL
-Editor fallback when
-.B EDITOR
-is unset.
+Editor fallback.
 .TP
 .B CFX_BROWSER
 Browser-opening command override.
@@ -339,24 +229,20 @@ Clipboard command override.
 .SH EXIT STATUS
 .TP
 .B 0
-The operation succeeded.
-For
+The operation succeeded; for
 .BR submit ,
 the verdict was
 .B OK
 on
 .BR TESTS .
-For
-.BR "test \-\-remote-check" ,
-all inputs completed within their limits; output correctness remains unchecked.
 .TP
 .B 1
-Tests or stress checking failed, or submit reported a final non-Accepted
+Testing or stress checking failed, or submit received a final non-Accepted
 verdict.
 .TP
 .B 2
-Usage was invalid, an operational error occurred, or submission remains
-pending or requires manual completion.
+Usage was invalid, an operation failed, or submission is pending or requires
+manual completion.
 .SH EXAMPLES
 Fetch and solve a problem:
 .PP
@@ -365,37 +251,18 @@ cfx 71A
 cfx submit
 .fi
 .PP
-For a problem with multiple valid outputs:
-.PP
-.nf
-cfx test --remote-check 2250B
-cfx submit --remote-check 2250B
-.fi
-.PP
 Run sanitizer-backed tests:
 .PP
 .nf
 cfx test --checked
 .fi
 .PP
-Differential-test 10,000 deterministic inputs and preserve a mismatch:
+Differential-test inputs and preserve a mismatch:
 .PP
 .nf
 cfx stress -n 10000 --seed 1
 cfx fail
 cfx test
-.fi
-.PP
-Produce a standalone submission:
-.PP
-.nf
-cfx bundle -o submission.cpp
-.fi
-.PP
-Import one Competitive Companion problem:
-.PP
-.nf
-cfx cc --once
 .fi
 .SH SEE ALSO
 .BR c++ (1),
