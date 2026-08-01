@@ -185,7 +185,6 @@ void test_workspace_creation_is_idempotent() {
     require(fs::is_directory(problem.samples_path()), "samples created");
     require(!fs::exists(root / ".cfx"), "runtime state stays outside archive");
     require(fs::is_directory(problem.cases_path()), "cases created");
-    require(fs::is_directory(problem.stress_path()), "stress created");
 
     write(first, "// keep me\n");
     const auto second = workspace.create(problem);

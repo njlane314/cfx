@@ -129,10 +129,6 @@ fs::path Problem::cases_path() const {
     return directory() / "cases";
 }
 
-fs::path Problem::stress_path() const {
-    return directory() / "stress";
-}
-
 std::vector<fs::path> Problem::test_directories() const {
     return {samples_path(), cases_path()};
 }

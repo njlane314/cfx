@@ -93,12 +93,11 @@ solutions/
 └── codeforces/<contest>/<index>/
     ├── solution.cpp
     ├── problem.json
-    ├── cases/                      optional authored tests
-    └── stress/                     optional generator and brute force
+    └── cases/                      optional authored tests
 ```
 
 Only durable, authored files belong here. Fetched samples, builds, run output,
-failures, and prepared submissions remain external. Empty optional directories
+and prepared submissions remain external. Empty optional directories
 need no placeholder files. A tracked `.cfx/solution.cpp` overrides the packaged
 starter.
 

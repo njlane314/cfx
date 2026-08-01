@@ -7,16 +7,13 @@
 #include "runtime.hpp"
 
 #include <algorithm>
-#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstring>
-#include <fcntl.h>
 #include <iostream>
 #include <map>
 #include <stdexcept>
-#include <system_error>
-#include <unistd.h>
+#include <vector>
 
 namespace cfx {
 namespace {
@@ -195,45 +192,6 @@ CaseVerdict process_verdict(const ProcessResult& result) {
     return CaseVerdict::runtime_error;
 }
 
-void create_text(const fs::path& path, const std::string& contents) {
-    const int descriptor = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
-    if (descriptor < 0)
-        throw std::runtime_error("cannot create " + path.string() + ": " + std::strerror(errno));
-    try {
-        std::size_t offset = 0;
-        while (offset < contents.size()) {
-            const ssize_t count = ::write(descriptor, contents.data() + offset,
-                                          contents.size() - offset);
-            if (count > 0)
-                offset += static_cast<std::size_t>(count);
-            else if (count < 0 && errno == EINTR)
-                continue;
-            else
-                throw std::runtime_error("cannot write " + path.string());
-        }
-        if (::close(descriptor) != 0)
-            throw std::runtime_error("cannot write " + path.string());
-    } catch (...) {
-        (void)::close(descriptor);
-        std::error_code ignored;
-        fs::remove(path, ignored);
-        throw;
-    }
-}
-
-void atomic_pair(const fs::path& input_path, const fs::path& output_path, const std::string& input,
-                 const std::string& output) {
-    fs::create_directories(input_path.parent_path());
-    create_text(input_path, input);
-    try {
-        create_text(output_path, output);
-    } catch (...) {
-        std::error_code ignored;
-        fs::remove(input_path, ignored);
-        throw;
-    }
-}
-
 } // namespace
 
 ProblemLimits load_problem_limits(const Problem& problem) {
@@ -404,115 +362,6 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
     }
     std::cout << '\n';
     return summary;
-}
-
-StressSummary Judge::stress(const Problem& problem, const StressOptions& options) const {
-    if (options.iterations < 1) {
-        throw std::runtime_error("stress iteration count must be positive");
-    }
-    const fs::path failure_directory = cfx::state_root(root_) / "failures" / problem.id();
-    fs::create_directories(failure_directory);
-    const fs::path ready = failure_directory / "ready";
-    std::error_code ignored;
-    fs::remove(ready, ignored);
-
-    const BuildResult solution =
-        builder_.build_problem(problem, BuildOptions{options.checked, options.rebuild, true});
-    const BuildResult generator = builder_.build_source(
-        options.generator, problem.id() + "-generator", BuildOptions{false, options.rebuild, true});
-    const BuildResult brute =
-        builder_.build_source(options.brute, problem.id() + "-brute",
-                              BuildOptions{options.checked, options.rebuild, true});
-
-    const fs::path input = failure_directory / "input.txt";
-    const fs::path expected = failure_directory / "expected.txt";
-    const fs::path actual = failure_directory / "actual.txt";
-    const fs::path generator_error = failure_directory / "generator.err";
-    const fs::path brute_error = failure_directory / "brute.err";
-    const fs::path solution_error = failure_directory / "solution.err";
-
-    StressSummary summary;
-    for (int iteration = 0; iteration < options.iterations; ++iteration) {
-        const std::uint64_t seed = options.seed + static_cast<std::uint64_t>(iteration);
-        std::vector<std::string> generator_command{generator.binary.string()};
-        generator_command.insert(generator_command.end(), options.generator_arguments.begin(),
-                                 options.generator_arguments.end());
-        generator_command.push_back(std::to_string(seed));
-
-        const ProcessResult generated =
-            run_process(generator_command, ProcessOptions{
-                                               .stdout_path = input,
-                                               .stderr_path = generator_error,
-                                               .timeout = options.generator_timeout,
-                                               .working_directory = options.generator.parent_path(),
-                                           });
-        if (generated.status != 0) {
-            throw std::runtime_error("generator failed for seed " + std::to_string(seed));
-        }
-
-        const ProcessResult expected_run = run_process(
-            {brute.binary.string()}, ProcessOptions{
-                                         .stdin_path = input,
-                                         .stdout_path = expected,
-                                         .stderr_path = brute_error,
-                                         .timeout = options.timeout,
-                                         .working_directory = options.brute.parent_path(),
-                                     });
-        if (expected_run.status != 0) {
-            throw std::runtime_error("brute force failed for seed " + std::to_string(seed));
-        }
-        const ProcessResult actual_run =
-            run_process({solution.binary.string()},
-                        ProcessOptions{
-                            .stdin_path = input,
-                            .stdout_path = actual,
-                            .stderr_path = solution_error,
-                            .timeout = options.timeout,
-                            .working_directory = problem.solution_path().parent_path(),
-                        });
-        if (actual_run.status != 0 ||
-            normalize_output(read_text(actual)) != normalize_output(read_text(expected))) {
-            write_text(failure_directory / "seed.txt", std::to_string(seed) + "\n");
-            write_text(ready, "failure\n");
-            summary.failing_seed = seed;
-            std::cout << "failed at seed " << seed << '\n'
-                      << "input: " << input << '\n'
-                      << "expected: " << expected << '\n'
-                      << "actual: " << actual << '\n';
-            return summary;
-        }
-        ++summary.completed;
-        if (options.verbose) {
-            std::cout << "seed " << seed << ": OK\n";
-        } else if ((iteration + 1) % 25 == 0) {
-            std::cout << (iteration + 1) << '/' << options.iterations << '\n';
-        }
-    }
-    std::cout << summary.completed << " stress cases passed\n";
-    return summary;
-}
-
-std::pair<fs::path, fs::path> Judge::promote_failure(const Problem& problem) const {
-    const fs::path failure_directory = cfx::state_root(root_) / "failures" / problem.id();
-    if (!fs::is_regular_file(failure_directory / "ready") ||
-        !fs::is_regular_file(failure_directory / "input.txt") ||
-        !fs::is_regular_file(failure_directory / "expected.txt")) {
-        throw std::runtime_error("no current stress failure to promote for " + problem.id());
-    }
-
-    const fs::path directory = problem.cases_path();
-    int number = 1;
-    fs::path input;
-    fs::path output;
-    do {
-        input = directory / ("stress-" + std::to_string(number) + ".in");
-        output = directory / ("stress-" + std::to_string(number) + ".out");
-        ++number;
-    } while (fs::exists(input) || fs::exists(output));
-
-    atomic_pair(input, output, read_text(failure_directory / "input.txt"),
-                read_text(failure_directory / "expected.txt"));
-    return {input, output};
 }
 
 std::string normalize_output(const std::string& output) {

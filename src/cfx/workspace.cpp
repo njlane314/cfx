@@ -52,7 +52,6 @@ fs::path Workspace::create(const Problem& problem) const {
         local.directory(),
         local.samples_path(),
         local.cases_path(),
-        local.stress_path(),
     };
     for (const auto& directory : directories) {
         std::error_code error;

@@ -14,7 +14,7 @@ mkdir -p "$sandbox/templates" "$sandbox/include"
 cp "$repo_root/assets/templates/solution.cpp" "$sandbox/templates/solution.cpp"
 cp -R "$repo_root/assets/include/cp" "$sandbox/include/cp"
 
-for removed_alias in new run rerun get cc bundle; do
+for removed_alias in new run rerun get cc bundle stress fail; do
     if alias_output=$(
         "$repo_root/cfx" --root "$sandbox" "$removed_alias" 2>&1
     ); then
@@ -36,19 +36,17 @@ fi
 
 problem_dir=$sandbox/codeforces/99991/A
 sample_dir=$state/codeforces/99991/A/samples
-mkdir -p "$problem_dir/cases" "$problem_dir/stress" "$sample_dir"
+mkdir -p "$problem_dir/cases" "$sample_dir"
 cp "$repo_root/assets/templates/solution.cpp" "$problem_dir/solution.cpp"
 
-for command in test stress; do
-    if alias_output=$(
-        cd "$problem_dir"
-        "$repo_root/cfx" --root "$sandbox" "$command" --check 2>&1
-    ); then
-        echo "judge workflow: $command accepted removed --check alias" >&2
-        exit 1
-    fi
-    grep -q "$command: unknown option --check" <<<"$alias_output"
-done
+if alias_output=$(
+    cd "$problem_dir"
+    "$repo_root/cfx" --root "$sandbox" test --check 2>&1
+); then
+    echo "judge workflow: test accepted removed --check alias" >&2
+    exit 1
+fi
+grep -q 'test: unknown option --check' <<<"$alias_output"
 
 cp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
 cp "$fixtures/02.in" "$sample_dir/02.in"
@@ -57,8 +55,6 @@ cp "$fixtures/10.in" "$sample_dir/10.in"
 cp "$fixtures/10.out" "$sample_dir/10.out"
 cp "$fixtures/02.in" "$problem_dir/cases/overflow.in"
 cp "$fixtures/02.out" "$problem_dir/cases/overflow.out"
-cp "$fixtures/gen.cpp" "$problem_dir/stress/gen.cpp"
-cp "$fixtures/brute.cpp" "$problem_dir/stress/brute.cpp"
 
 test_output=$(
     cd "$problem_dir"
@@ -100,32 +96,7 @@ cached_output=$(
 )
 grep -q 'cached:' <<<"$cached_output"
 
-(
-    cd "$problem_dir"
-    "$repo_root/cfx" --root "$sandbox" stress -n 5 --seed 11
-) | grep -q '5 stress cases passed'
-
-cp "$fixtures/wrong.cpp" "$problem_dir/solution.cpp"
-if (
-    cd "$problem_dir"
-    "$repo_root/cfx" --root "$sandbox" stress -n 1 --seed 99
-) >/dev/null; then
-    echo "judge workflow: stress mismatch was accepted" >&2
-    exit 1
-fi
-(
-    cd "$problem_dir"
-    "$repo_root/cfx" --root "$sandbox" fail
-) | grep -q 'stress-1.in'
-test -f "$problem_dir/cases/stress-1.in"
-test -f "$problem_dir/cases/stress-1.out"
-
-cp "$fixtures/sum.cpp" "$problem_dir/solution.cpp"
-(
-    cd "$problem_dir"
-    "$repo_root/cfx" --root "$sandbox" test
-) | grep -q '4/4 passed'
 test ! -e "$sandbox/.build"
 test ! -e "$sandbox/.cfx"
 
-echo "judge and stress workflow passed"
+echo "judge workflow passed"

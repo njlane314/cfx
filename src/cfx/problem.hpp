@@ -37,7 +37,6 @@ class Problem {
     [[nodiscard]] std::filesystem::path state_directory() const;
     [[nodiscard]] std::filesystem::path samples_path() const;
     [[nodiscard]] std::filesystem::path cases_path() const;
-    [[nodiscard]] std::filesystem::path stress_path() const;
     [[nodiscard]] std::vector<std::filesystem::path> test_directories() const;
 
   private:

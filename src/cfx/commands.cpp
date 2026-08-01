@@ -38,8 +38,6 @@ daily:
 
 advanced:
   test [PROBLEM]        build and judge saved samples and cases
-  stress [PROBLEM]      compare the solution with a brute force program
-  fail [PROBLEM]        promote the current stress failure
   help [COMMAND]        show general or command help
 
 Problems use canonical IDs such as 71A. Commands also infer the problem from
@@ -54,13 +52,6 @@ is inferred when the command runs inside its archive directory. Fetched
 Codeforces time and memory limits are used by default. Options: --checked,
 --rebuild, --time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
 )"},
-    {"stress", R"(usage: cfx stress [options] [PROBLEM]
-
-Defaults to stress/gen.cpp and stress/brute.cpp in the problem directory.
-Options: --gen FILE, --brute FILE, -n/--count N, --seed N, --gen-arg ARG,
---checked, --rebuild, --time-limit SECONDS, --generator-time-limit SECONDS,
-and --verbose.
-)"},
     {"submit", R"(usage: cfx submit [--manual] [--rebuild] [PROBLEM]
 
 Run saved tests, create and checked-compile the final bundle, then submit it
@@ -73,20 +64,7 @@ cookie is read or stored by cfx.
 Exit status is 0 only for `OK` on `TESTS`, 1 for a final non-Accepted verdict,
 and 2 while judging is pending or submission requires manual completion.
 )"},
-    {"fail", R"(usage: cfx fail [PROBLEM]
-
-Promote the most recent recorded stress mismatch to a regression case.
-)"},
 };
-
-long long integer(const std::string& value, const std::string& name) {
-    std::size_t parsed = 0;
-    const long long result = std::stoll(value, &parsed);
-    if (parsed != value.size()) {
-        throw std::runtime_error(name + " must be an integer");
-    }
-    return result;
-}
 
 std::chrono::milliseconds duration(const std::string& value, const std::string& name) {
     std::size_t parsed = 0;
@@ -113,15 +91,6 @@ std::uint64_t mebibytes(const std::string& value, const std::string& name) {
         throw std::runtime_error(name + " is too small");
     }
     return rounded;
-}
-
-int bounded_integer(const std::string& value, const std::string& name, int minimum, int maximum) {
-    const long long parsed = integer(value, name);
-    if (parsed < minimum || parsed > maximum) {
-        throw std::runtime_error(name + " must be between " + std::to_string(minimum) + " and " +
-                                 std::to_string(maximum));
-    }
-    return static_cast<int>(parsed);
 }
 
 Problem resolve_problem(const std::vector<std::string>& values, const fs::path& root) {
@@ -163,10 +132,6 @@ Problem resolve_submission_problem(const std::vector<std::string>& values,
     }
     throw std::runtime_error(
         "cannot determine which problem to submit; run cfx 71A or pass a problem ID");
-}
-
-fs::path resolve_path(const fs::path& value) {
-    return value.is_absolute() ? value : fs::current_path() / value;
 }
 
 void show_help() {
@@ -266,81 +231,6 @@ int command_test(Arguments arguments, const fs::path& root) {
     const Problem problem = resolve_problem(positional, root);
     const cfx::TestSummary result = cfx::Judge(root).test(problem, options);
     return result.success() ? 0 : 1;
-}
-
-int command_stress(Arguments arguments, const fs::path& root) {
-    cfx::StressOptions options;
-    std::optional<fs::path> generator;
-    std::optional<fs::path> brute;
-    std::vector<std::string> positional;
-    while (!arguments.empty()) {
-        const std::string argument = arguments.take();
-        if (argument == "--help" || argument == "-h") {
-            show_command_help("stress");
-            return 0;
-        }
-        if (argument == "--gen") {
-            generator = resolve_path(arguments.take());
-        } else if (argument == "--brute") {
-            brute = resolve_path(arguments.take());
-        } else if (argument == "-n" || argument == "--count") {
-            options.iterations = bounded_integer(arguments.take(), "--count", 1, 1000000);
-        } else if (argument == "--seed") {
-            const long long value = integer(arguments.take(), "--seed");
-            if (value < 0) {
-                throw std::runtime_error("--seed must be non-negative");
-            }
-            options.seed = static_cast<std::uint64_t>(value);
-        } else if (argument == "--gen-arg") {
-            options.generator_arguments.push_back(arguments.take());
-        } else if (argument == "--checked") {
-            options.checked = true;
-        } else if (argument == "--rebuild") {
-            options.rebuild = true;
-        } else if (argument == "--verbose") {
-            options.verbose = true;
-        } else if (argument == "--time-limit") {
-            options.timeout = duration(arguments.take(), "--time-limit");
-        } else if (argument == "--generator-time-limit") {
-            options.generator_timeout = duration(arguments.take(), "--generator-time-limit");
-        } else if (argument.starts_with("-")) {
-            throw std::runtime_error("stress: unknown option " + argument);
-        } else {
-            positional.push_back(argument);
-        }
-    }
-    const Problem problem = resolve_problem(positional, root);
-    if (generator) {
-        options.generator = *generator;
-    } else {
-        options.generator = problem.stress_path() / "gen.cpp";
-    }
-    if (brute) {
-        options.brute = *brute;
-    } else {
-        options.brute = problem.stress_path() / "brute.cpp";
-    }
-    const cfx::StressSummary result = cfx::Judge(root).stress(problem, options);
-    return result.success() ? 0 : 1;
-}
-
-int command_fail(Arguments arguments, const fs::path& root) {
-    std::vector<std::string> positional;
-    while (!arguments.empty()) {
-        const std::string argument = arguments.take();
-        if (argument == "--help" || argument == "-h") {
-            show_command_help("fail");
-            return 0;
-        }
-        if (argument.starts_with("-")) {
-            throw std::runtime_error("fail: unknown option " + argument);
-        }
-        positional.push_back(argument);
-    }
-    const Problem problem = resolve_problem(positional, root);
-    const auto [input, output] = cfx::Judge(root).promote_failure(problem);
-    std::cout << "wrote: " << input << '\n' << "wrote: " << output << '\n';
-    return 0;
 }
 
 int command_submit(Arguments arguments, const fs::path& root) {
