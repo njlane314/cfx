@@ -8,8 +8,7 @@ make browser-package
 
 The resulting `.build/browser/cfx-connector-<version>.zip` has
 `manifest.json` at its root and contains only runtime files. Packaging requires
-Node.js and `zip`, includes the tracked extension icons, and downloads no
-dependency.
+Node.js and `zip`, and downloads no dependency.
 
 ## Release checklist
 

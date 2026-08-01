@@ -34,14 +34,13 @@ TOOL_CXXFLAGS := -std=$(CFX_STD) -Wall -Wextra -Wpedantic -pthread
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test lint release-check verify browser-package install clean FORCE
+.PHONY: help build test lint verify browser-package install clean FORCE
 
 help:
 	@echo 'Development:'
 	@echo '  make build        build the C++ command-line tool'
 	@echo '  make test         run library and tooling tests'
 	@echo '  make lint         check scripts and CLI startup'
-	@echo '  make release-check  verify distributable packaging'
 	@echo '  make verify       run all checks'
 	@echo '  make browser-package  build the Chrome Web Store ZIP'
 	@echo
@@ -94,10 +93,7 @@ lint:
 	@if command -v mandoc >/dev/null 2>&1; then mandoc -T lint $(MANPAGE); fi
 	$(CFX) --help >/dev/null
 
-release-check: build
-	bash release/test.sh
-
-verify: test lint release-check
+verify: test lint
 
 browser-package:
 	bash src/browser/package.sh

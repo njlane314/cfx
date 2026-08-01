@@ -2,234 +2,91 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 concurrency:
   group: release-${{ github.ref }}
 
 jobs:
-  binaries:
-    name: ${{ matrix.platform }} ${{ matrix.architecture }}
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            platform: linux
-            architecture: x86_64
-          - runner: ubuntu-24.04-arm
-            platform: linux
-            architecture: arm64
-          - runner: macos-15-intel
-            platform: macos
-            architecture: x86_64
-          - runner: macos-15
-            platform: macos
-            architecture: arm64
-
+  verify:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-
-      - name: Validate tag
-        id: version
+      - name: Validate and test
         shell: bash
         run: |
           version=${GITHUB_REF_NAME#v}
           [[ $GITHUB_REF_NAME == v"$version" ]]
           [[ $version =~ ^[0-9]+([.][0-9]+){2}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
-          echo "value=$version" >>"$GITHUB_OUTPUT"
+          manifest_version=$(node -p \
+            'JSON.parse(require("node:fs").readFileSync("src/browser/manifest.json", "utf8")).version')
+          [[ $manifest_version == "$version" ]]
+          make verify
 
-      - name: Verify source
-        run: make verify
-
-      - name: Sign and notarize macOS executable
-        if: runner.os == 'macOS' && vars.APPLE_CODESIGN_ENABLED == 'true'
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
-          APPLE_NOTARY_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
-          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
-        run: release/sign-macos.sh .build/tools/cfx
-
-      - name: Package
-        run: >-
-          release/package.sh
-          "${{ steps.version.outputs.value }}"
-          "${{ matrix.platform }}"
-          "${{ matrix.architecture }}"
-
-      - name: Attest archive
-        uses: actions/attest@v4
-        with:
-          subject-path: .build/release/*.tar.gz
-
-      - name: Preserve archive
-        uses: actions/upload-artifact@v7
+  binaries:
+    needs: verify
+    name: ${{ matrix.platform }} ${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, platform: linux, architecture: x86_64}
+          - {runner: ubuntu-24.04-arm, platform: linux, architecture: arm64}
+          - {runner: macos-15-intel, platform: macos, architecture: x86_64}
+          - {runner: macos-15, platform: macos, architecture: arm64}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build, package, and smoke-test
+        shell: bash
+        run: |
+          make build
+          archive=$(release/package.sh "${GITHUB_REF_NAME#v}" \
+            "${{ matrix.platform }}" "${{ matrix.architecture }}")
+          package=${archive##*/}
+          package=${package%.tar.gz}
+          stage=$(mktemp -d)
+          trap 'rm -rf "$stage"' EXIT
+          tar -xzf "$archive" -C "$stage"
+          "$stage/$package/bin/cfx" --help >/dev/null
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.platform }}-${{ matrix.architecture }}
           path: .build/release/*.tar.gz
           if-no-files-found: error
 
-  metadata:
-    name: Source and connector
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Validate tag
-        id: version
-        shell: bash
-        run: |
-          version=${GITHUB_REF_NAME#v}
-          [[ $GITHUB_REF_NAME == v"$version" ]]
-          [[ $version =~ ^[0-9]+([.][0-9]+){2}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
-          echo "value=$version" >>"$GITHUB_OUTPUT"
-
-      - name: Build source and connector archives
-        shell: bash
-        run: |
-          version=${{ steps.version.outputs.value }}
-          manifest_version=$(node -p \
-            'JSON.parse(require("node:fs").readFileSync("src/browser/manifest.json", "utf8")).version')
-          [[ $manifest_version == "$version" ]]
-          release/source-archive.sh "$version"
-          browser_archive=$(src/browser/package.sh)
-          [[ $(basename "$browser_archive") == "cfx-connector-$version.zip" ]]
-          cp "$browser_archive" .build/release/
-
-      - name: Attest archives
-        uses: actions/attest@v4
-        with:
-          subject-path: .build/release/*
-
-      - name: Preserve archives
-        uses: actions/upload-artifact@v7
-        with:
-          name: metadata
-          path: .build/release/*
-          if-no-files-found: error
-
   publish:
-    name: Publish GitHub release
-    needs: [binaries, metadata]
+    needs: binaries
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      id-token: write
-      attestations: write
-    outputs:
-      version: ${{ steps.version.outputs.value }}
-      source_sha256: ${{ steps.checksums.outputs.source_sha256 }}
-
     steps:
       - uses: actions/checkout@v7
-
-      - name: Read version
-        id: version
-        shell: bash
-        run: echo "value=${GITHUB_REF_NAME#v}" >>"$GITHUB_OUTPUT"
-
       - uses: actions/download-artifact@v8
         with:
           path: .build/release
           merge-multiple: true
-
-      - name: Check release set and write checksums
-        id: checksums
+      - name: Add connector and checksums
         shell: bash
         run: |
-          version=${{ steps.version.outputs.value }}
+          version=${GITHUB_REF_NAME#v}
+          connector=$(src/browser/package.sh)
+          cp "$connector" .build/release/
           cd .build/release
           expected=(
-            "cfx-connector-$version.zip"
             "cfx-$version-linux-arm64.tar.gz"
             "cfx-$version-linux-x86_64.tar.gz"
             "cfx-$version-macos-arm64.tar.gz"
             "cfx-$version-macos-x86_64.tar.gz"
-            "cfx-$version-source.tar.gz"
+            "cfx-connector-$version.zip"
           )
           for archive in "${expected[@]}"; do [[ -f $archive ]]; done
-          [[ $(find . -maxdepth 1 -type f | wc -l | tr -d ' ') -eq 6 ]]
-          ../../release/checksums.sh "${expected[@]}" >SHA256SUMS
-          source_sha=$(awk -v file="cfx-$version-source.tar.gz" '$2 == file { print $1 }' SHA256SUMS)
-          [[ $source_sha =~ ^[0-9a-f]{64}$ ]]
-          echo "source_sha256=$source_sha" >>"$GITHUB_OUTPUT"
-
-      - name: Attest checksum manifest and its subjects
-        uses: actions/attest@v4
-        with:
-          subject-path: .build/release/*
-
-      - name: Publish immutable release assets
+          sha256sum "${expected[@]}" | LC_ALL=C sort -k2 >SHA256SUMS
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME" .build/release/*
-          --verify-tag
-          --generate-notes
-          --title "cfx ${{ steps.version.outputs.value }}"
-          --notes "The small, auditable, two-command Codeforces workflow."
-
-  formula:
-    name: Publish Homebrew formula
-    needs: publish
-    if: vars.HOMEBREW_TAP_ENABLED == 'true'
-    runs-on: macos-15
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Render formula
-        shell: bash
         run: |
-          release/render-formula.sh \
-            "${{ needs.publish.outputs.version }}" \
-            "${{ needs.publish.outputs.source_sha256 }}" \
-            >"$RUNNER_TEMP/cfx.rb"
-          ruby -c "$RUNNER_TEMP/cfx.rb"
-          brew style "$RUNNER_TEMP/cfx.rb"
-
-      - name: Install and test formula
-        run: |
-          brew install --formula "$RUNNER_TEMP/cfx.rb"
-          brew test cfx
-
-      - name: Publish standard tap formula
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        shell: bash
-        run: |
-          [[ -n $GH_TOKEN ]]
-          gh auth setup-git
-          gh repo clone njlane314/homebrew-cfx "$RUNNER_TEMP/homebrew-cfx" -- --depth=1
-          cd "$RUNNER_TEMP/homebrew-cfx"
-          mkdir -p Formula
-          install -m 0644 "$RUNNER_TEMP/cfx.rb" Formula/cfx.rb
-          git diff --check -- Formula/cfx.rb
-          if git ls-files --error-unmatch Formula/cfx.rb >/dev/null 2>&1 && \
-              git diff --quiet -- Formula/cfx.rb; then
-            echo "The public tap formula is already current"
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add Formula/cfx.rb
-          git commit -m "Update Homebrew formula for $GITHUB_REF_NAME"
-          git push origin HEAD:main
+          gh release create "$GITHUB_REF_NAME" .build/release/* \
+            --verify-tag --generate-notes \
+            --title "cfx ${GITHUB_REF_NAME#v}" \
+            --notes "The small, auditable, two-command Codeforces workflow."

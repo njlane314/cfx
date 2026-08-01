@@ -79,7 +79,6 @@ cp "$manifest" \
     "$script_dir/submission.js" \
     "$script_dir/connector.js" \
     "$stage/"
-cp -R "$script_dir/icons" "$stage/"
 
 rm -f "$archive"
 (
