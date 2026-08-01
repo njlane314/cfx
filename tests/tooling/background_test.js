@@ -53,7 +53,6 @@ const local = {
   port: 32123,
   token: "a".repeat(64),
   route: "fetch",
-  method: "POST",
   body: "{\"tests\":[]}"
 };
 
@@ -113,14 +112,17 @@ async function main() {
   assert.equal(requests[0].options.headers["X-Cfx-Extension"], chrome.runtime.id);
 
   const requestCount = requests.length;
-  const wrongMethod = await send({...local, route: "ready", method: "POST", body: "{}"});
-  assert.equal(wrongMethod.ok, false);
-  assert.match(wrongMethod.error, /method for route/);
-  assert.equal(requests.length, requestCount);
+  const routeMethod = await send({...local, route: "ready", method: "POST", body: ""});
+  assert.equal(routeMethod.ok, true);
+  assert.equal(requests.length, requestCount + 1);
+  assert.equal(requests.at(-1).options.method, "GET");
+  assert.equal(requests.at(-1).options.body, undefined);
+  assert.equal(requests.at(-1).options.headers["Content-Type"], undefined);
+  const postMethodCount = requests.length;
   const largeError = await send({...local, route: "fetch-error", body: "x".repeat(65537)});
   assert.equal(largeError.ok, false);
   assert.match(largeError.error, /too large/);
-  assert.equal(requests.length, requestCount);
+  assert.equal(requests.length, postMethodCount);
 
   await assert.rejects(
     background.limitedResponseBody({headers: {get: () => "65537"}}, 65536),
@@ -259,7 +261,7 @@ async function main() {
     assert.equal(loadedFetch.value.operation, fetchOperation);
     assert.equal(loadedFetch.value.value.position, 1);
     assert.equal((await send(local, mirrorSender)).ok, true);
-    assert.equal((await send({...local, route: "ready", method: "GET", body: ""}, mirrorSender)).ok,
+    assert.equal((await send({...local, route: "ready", body: ""}, mirrorSender)).ok,
       true);
     assert.equal((await send({...local, route: "result", body: '{}'}, mirrorSender)).ok, false);
     assert.equal((await send(state("load"), mirrorSender)).ok, false);
@@ -304,7 +306,7 @@ async function main() {
   assert.equal((await send(state("load"), sender)).ok, false);
   assert.equal((await send(fetchState("load"), submissionSender)).ok, false);
 
-  assert.equal((await send({...local, route: "submission", method: "GET", body: ""}, sender)).ok,
+  assert.equal((await send({...local, route: "submission", body: ""}, sender)).ok,
     false);
   assert.equal((await send(local, {...sender, url: "https://codeforces.com/contest/71/submit"})).ok,
     false);
@@ -324,12 +326,12 @@ async function main() {
   }
 
   const archiveSubmit = await send(
-    {...local, route: "ready", method: "GET", body: ""},
+    {...local, route: "ready", body: ""},
     {...sender, url: "https://codeforces.com/problemset/submit"}
   );
   assert.equal(archiveSubmit.ok, true);
   assert.equal((await send(
-    {...local, route: "ready", method: "GET", body: ""},
+    {...local, route: "ready", body: ""},
     {...sender, url: "https://codeforces.com/enter?back=%2Fcontest%2F71%2Fsubmit"}
   )).ok, true);
   const unrelatedPage = await send(

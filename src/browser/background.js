@@ -43,13 +43,28 @@
     return message.replace(/\s+/g, " ").trim().slice(0, 1000) || "unknown connector error";
   }
 
-  function senderPage(sender) {
-    if (sender.id !== chrome.runtime.id || sender.frameId !== 0) return false;
-    try {
-      return new URL(sender.url || sender.tab?.url || "");
-    } catch {
-      return false;
+  function senderContext(sender) {
+    if (
+      sender.id !== chrome.runtime.id || sender.frameId !== 0 ||
+      !Number.isInteger(sender.tab?.id) || sender.tab.id < 0
+    ) {
+      throw new Error("connector messages must come from a Codeforces top-level tab");
     }
+    let page;
+    try {
+      page = new URL(sender.url || sender.tab.url || "");
+    } catch {
+      throw new Error("connector messages must come from a Codeforces top-level tab");
+    }
+    const primary = page.origin === primaryOrigin;
+    const problem = primary
+      ? problemPath(page.pathname)
+      : problemOriginSet.has(page.origin) && contestProblemPath(page.pathname);
+    const result = primary && resultPath(page.pathname);
+    if (!problem && !result) {
+      throw new Error("connector messages must come from a Codeforces top-level tab");
+    }
+    return {page, primary, problem, result, tab: sender.tab.id};
   }
 
   function contestProblemPath(pathname) {
@@ -85,47 +100,21 @@
     );
   }
 
-  function codeforcesPage(sender) {
-    const url = senderPage(sender);
-    if (!url) return false;
-    if (url.origin === primaryOrigin) {
-      return problemPath(url.pathname) || resultPath(url.pathname);
-    }
-    return problemOriginSet.has(url.origin) && contestProblemPath(url.pathname);
-  }
-
   function routePage(sender, route) {
-    const url = senderPage(sender);
-    if (!url) return false;
-    const primary = url.origin === primaryOrigin;
-    const problem = primary
-      ? problemPath(url.pathname)
-      : problemOriginSet.has(url.origin) && contestProblemPath(url.pathname);
     return (
-      (route === "ready" && (problem || primary && resultPath(url.pathname))) ||
-      (route === "fetch" && problem) ||
-      (route === "fetch-error" && (problem || primary && resultPath(url.pathname))) ||
-      (route === "submission" && primary && submissionPath(url.pathname)) ||
-      (route === "result" && primary && resultPath(url.pathname))
+      (route === "ready" && (sender.problem || sender.result)) ||
+      (route === "fetch" && sender.problem) ||
+      (route === "fetch-error" && (sender.problem || sender.result)) ||
+      (route === "submission" && sender.primary && submissionPath(sender.page.pathname)) ||
+      (route === "result" && sender.result)
     );
-  }
-
-  function tabId(sender, allowMirror = false) {
-    const page = senderPage(sender);
-    if (
-      !codeforcesPage(sender) || (!allowMirror && page.origin !== primaryOrigin) ||
-      !Number.isInteger(sender.tab?.id) || sender.tab.id < 0
-    ) {
-      throw new Error("connector messages must come from a Codeforces top-level tab");
-    }
-    return sender.tab.id;
   }
 
   function validatedLocalRequest(message) {
     if (!message || typeof message !== "object" || message.type !== localMessage) {
       throw new Error("invalid connector message");
     }
-    const {port, token, route, method = "GET", body = ""} = message;
+    const {port, token, route, body = ""} = message;
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error("invalid loopback port");
     }
@@ -136,7 +125,6 @@
       throw new Error("invalid connector route");
     }
     const policy = routes.get(route);
-    if (method !== policy.method) throw new Error("invalid connector method for route");
     if (typeof body !== "string" || new TextEncoder().encode(body).length > policy.requestBytes) {
       throw new Error("connector request is too large");
     }
@@ -175,10 +163,10 @@
 
   async function localRequest(message, sender) {
     const request = validatedLocalRequest(message);
-    if (!routePage(sender, request.route)) {
+    const source = senderContext(sender);
+    if (!routePage(source, request.route)) {
       throw new Error("connector route is not allowed from this Codeforces page");
     }
-    tabId(sender, true);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
@@ -224,6 +212,17 @@
     await Promise.all(keys.map(key => chrome.alarms.clear(alarmName(key))));
   }
 
+  async function storeState(key, value, lifetime) {
+    const expiresAtMillis = Date.now() + lifetime;
+    await chrome.storage.session.set({[key]: {...value, expiresAtMillis}});
+    try {
+      await chrome.alarms.create(alarmName(key), {when: expiresAtMillis});
+    } catch (error) {
+      await removeStates([key]);
+      throw error;
+    }
+  }
+
   function validState(value) {
     return Boolean(
       value &&
@@ -238,22 +237,23 @@
     );
   }
 
-  async function statesForTab(tab, now = Date.now()) {
-    const prefix = `${statePrefix}${tab}:`;
+  async function statesForTab(prefix, tab, valid, include = () => true) {
+    const tabPrefix = `${prefix}${tab}:`;
+    const now = Date.now();
     const stored = await chrome.storage.session.get(null);
     const active = [];
     const stale = [];
     for (const [key, value] of Object.entries(stored)) {
-      if (!key.startsWith(prefix)) continue;
-      const operation = key.slice(prefix.length);
+      if (!key.startsWith(tabPrefix)) continue;
+      const operation = key.slice(tabPrefix.length);
       if (
         !/^[0-9a-f]{64}$/.test(operation) ||
-        !validState(value) ||
+        !valid(value) ||
         !Number.isSafeInteger(value.expiresAtMillis) ||
         value.expiresAtMillis <= now
       ) {
         stale.push(key);
-      } else {
+      } else if (include(value)) {
         active.push({operation, value});
       }
     }
@@ -265,28 +265,22 @@
     if (!message || typeof message !== "object" || message.type !== stateMessage) {
       throw new Error("invalid submission-state message");
     }
-    const tab = tabId(sender);
-    if (!resultPath(senderPage(sender).pathname)) {
+    const source = senderContext(sender);
+    if (!source.result) {
       throw new Error("submission state is not allowed from this Codeforces page");
     }
+    const tab = source.tab;
     if (message.action === "save") {
       const key = stateKey(tab, message.operation);
       if (!validState(message.value)) throw new Error("invalid pending submission");
-      if ((await statesForTab(tab)).length) {
+      if ((await statesForTab(statePrefix, tab, validState)).length) {
         throw new Error("another submission operation is pending in this tab");
       }
-      const expiresAtMillis = Date.now() + stateLifetime;
-      await chrome.storage.session.set({[key]: {...message.value, expiresAtMillis}});
-      try {
-        await chrome.alarms.create(alarmName(key), {when: expiresAtMillis});
-      } catch (error) {
-        await removeStates([key]);
-        throw error;
-      }
+      await storeState(key, message.value, stateLifetime);
       return null;
     }
     if (message.action === "load") {
-      const states = await statesForTab(tab);
+      const states = await statesForTab(statePrefix, tab, validState);
       if (states.length > 1) throw new Error("multiple submission operations are pending in this tab");
       return states[0] || null;
     }
@@ -314,37 +308,23 @@
     );
   }
 
-  async function fetchStatesForTab(tab, pathname = "", now = Date.now()) {
-    const prefix = `${fetchStatePrefix}${tab}:`;
-    const stored = await chrome.storage.session.get(null);
-    const active = [];
-    const stale = [];
-    for (const [key, value] of Object.entries(stored)) {
-      if (!key.startsWith(prefix)) continue;
-      const operation = key.slice(prefix.length);
-      if (
-        !/^[0-9a-f]{64}$/.test(operation) || !validFetchState(value) ||
-        !Number.isSafeInteger(value.expiresAtMillis) || value.expiresAtMillis <= now
-      ) {
-        stale.push(key);
-      } else if (!pathname ||
-                 normalizedProblemPath(value.pathname) === normalizedProblemPath(pathname)) {
-        active.push({operation, value});
-      }
-    }
-    await removeStates(stale);
-    return active;
+  async function fetchStatesForTab(tab, pathname = "") {
+    return statesForTab(
+      fetchStatePrefix, tab, validFetchState,
+      value => !pathname ||
+        normalizedProblemPath(value.pathname) === normalizedProblemPath(pathname)
+    );
   }
 
   async function fetchStateNow(message, sender) {
     if (!message || typeof message !== "object" || message.type !== fetchStateMessage) {
       throw new Error("invalid fetch-state message");
     }
-    if (!routePage(sender, "fetch")) {
+    const source = senderContext(sender);
+    if (!source.problem) {
       throw new Error("fetch state is not allowed from this Codeforces page");
     }
-    const tab = tabId(sender, true);
-    const page = senderPage(sender);
+    const {page, tab} = source;
     if (message.action === "save") {
       const key = fetchStateKey(tab, message.operation);
       if (
@@ -358,18 +338,10 @@
       if (active.some(state => state.operation !== message.operation)) {
         throw new Error("another fetch operation is pending in this tab");
       }
-      const expiresAtMillis = Date.now() + fetchStateLifetime;
-      await chrome.storage.session.set({[key]: {
+      await storeState(key, {
         ...message.value,
-        pathname: normalizedProblemPath(message.value.pathname),
-        expiresAtMillis
-      }});
-      try {
-        await chrome.alarms.create(alarmName(key), {when: expiresAtMillis});
-      } catch (error) {
-        await removeStates([key]);
-        throw error;
-      }
+        pathname: normalizedProblemPath(message.value.pathname)
+      }, fetchStateLifetime);
       return null;
     }
     if (message.action === "load") {
@@ -443,17 +415,10 @@
 
   return {
     alarmName,
-    codeforcesPage,
-    expireState,
-    fetchState,
     fetchStateKey,
-    fetchStatesForTab,
     listen,
     limitedResponseBody,
-    localRequest,
     stateIdle: () => stateQueue,
-    stateKey,
-    statesForTab,
-    submissionState
+    stateKey
   };
 });

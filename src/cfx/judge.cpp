@@ -3,12 +3,15 @@
 #include "file.hpp"
 #include "json.hpp"
 #include "problem.hpp"
+#include "process.hpp"
 #include "runtime.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <fcntl.h>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -29,6 +32,15 @@ struct Case {
     fs::path expected;
 };
 
+enum class CaseVerdict {
+    time_limit_exceeded,
+    memory_limit_exceeded,
+    output_limit_exceeded,
+    runtime_error,
+};
+
+std::string verdict_name(CaseVerdict verdict);
+
 bool natural_less(const std::string& left, const std::string& right) {
     std::size_t a = 0;
     std::size_t b = 0;
@@ -38,14 +50,10 @@ bool natural_less(const std::string& left, const std::string& right) {
         if (a_digit && b_digit) {
             std::size_t a_end = a;
             std::size_t b_end = b;
-            while (a_end < left.size() &&
-                   std::isdigit(static_cast<unsigned char>(left[a_end])) != 0) {
+            while (a_end < left.size() && std::isdigit(static_cast<unsigned char>(left[a_end])))
                 ++a_end;
-            }
-            while (b_end < right.size() &&
-                   std::isdigit(static_cast<unsigned char>(right[b_end])) != 0) {
+            while (b_end < right.size() && std::isdigit(static_cast<unsigned char>(right[b_end])))
                 ++b_end;
-            }
             const std::string_view a_number(left.data() + a, a_end - a);
             const std::string_view b_number(right.data() + b, b_end - b);
             const auto a_zero = a_number.find_first_not_of('0');
@@ -56,20 +64,17 @@ bool natural_less(const std::string& left, const std::string& right) {
             const std::string_view b_trimmed = b_zero == std::string_view::npos
                                                    ? b_number.substr(b_number.size() - 1)
                                                    : b_number.substr(b_zero);
-            if (a_trimmed.size() != b_trimmed.size()) {
+            if (a_trimmed.size() != b_trimmed.size())
                 return a_trimmed.size() < b_trimmed.size();
-            }
-            if (a_trimmed != b_trimmed) {
+            if (a_trimmed != b_trimmed)
                 return a_trimmed < b_trimmed;
-            }
             a = a_end;
             b = b_end;
         } else {
             const char ac = static_cast<char>(std::tolower(static_cast<unsigned char>(left[a])));
             const char bc = static_cast<char>(std::tolower(static_cast<unsigned char>(right[b])));
-            if (ac != bc) {
+            if (ac != bc)
                 return ac < bc;
-            }
             ++a;
             ++b;
         }
@@ -101,11 +106,8 @@ std::vector<Case> cases_for(const Problem& problem) {
             }
             fs::path answer = entry.path();
             answer.replace_extension(".out");
-            const std::string prefix = directory.filename().string().empty()
-                                           ? std::string{}
-                                           : directory.filename().string() + "/";
             directory_cases.push_back(Case{
-                prefix + entry.path().filename().string(),
+                directory.filename().string() + "/" + entry.path().filename().string(),
                 entry.path(),
                 answer,
             });
@@ -193,52 +195,41 @@ CaseVerdict process_verdict(const ProcessResult& result) {
     return CaseVerdict::runtime_error;
 }
 
+void create_text(const fs::path& path, const std::string& contents) {
+    const int descriptor = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (descriptor < 0)
+        throw std::runtime_error("cannot create " + path.string() + ": " + std::strerror(errno));
+    try {
+        std::size_t offset = 0;
+        while (offset < contents.size()) {
+            const ssize_t count = ::write(descriptor, contents.data() + offset,
+                                          contents.size() - offset);
+            if (count > 0)
+                offset += static_cast<std::size_t>(count);
+            else if (count < 0 && errno == EINTR)
+                continue;
+            else
+                throw std::runtime_error("cannot write " + path.string());
+        }
+        if (::close(descriptor) != 0)
+            throw std::runtime_error("cannot write " + path.string());
+    } catch (...) {
+        (void)::close(descriptor);
+        std::error_code ignored;
+        fs::remove(path, ignored);
+        throw;
+    }
+}
+
 void atomic_pair(const fs::path& input_path, const fs::path& output_path, const std::string& input,
                  const std::string& output) {
     fs::create_directories(input_path.parent_path());
-    const std::string suffix = ".tmp." + std::to_string(::getpid());
-    const fs::path input_temp = input_path.string() + suffix;
-    const fs::path output_temp = output_path.string() + suffix;
-    const fs::path input_backup = input_path.string() + ".backup." + std::to_string(::getpid());
-    const fs::path output_backup = output_path.string() + ".backup." + std::to_string(::getpid());
-    bool input_backed_up = false;
-    bool output_backed_up = false;
-    bool input_installed = false;
-    bool output_installed = false;
-    write_text(input_temp, input);
+    create_text(input_path, input);
     try {
-        write_text(output_temp, output);
-        if (fs::exists(input_path)) {
-            fs::rename(input_path, input_backup);
-            input_backed_up = true;
-        }
-        if (fs::exists(output_path)) {
-            fs::rename(output_path, output_backup);
-            output_backed_up = true;
-        }
-        fs::rename(input_temp, input_path);
-        input_installed = true;
-        fs::rename(output_temp, output_path);
-        output_installed = true;
-        std::error_code ignored;
-        fs::remove(input_backup, ignored);
-        fs::remove(output_backup, ignored);
+        create_text(output_path, output);
     } catch (...) {
         std::error_code ignored;
-        fs::remove(input_temp, ignored);
-        fs::remove(output_temp, ignored);
-        if (input_installed) {
-            fs::remove(input_path, ignored);
-        }
-        if (output_installed) {
-            fs::remove(output_path, ignored);
-        }
-        if (input_backed_up && fs::exists(input_backup)) {
-            fs::rename(input_backup, input_path, ignored);
-        }
-        if (output_backed_up && fs::exists(output_backup)) {
-            fs::rename(output_backup, output_path, ignored);
-        }
+        fs::remove(input_path, ignored);
         throw;
     }
 }
@@ -285,24 +276,24 @@ Judge::Judge(fs::path root) : root_(fs::weakly_canonical(std::move(root))), buil
 
 TestSummary Judge::test(const Problem& problem, const TestOptions& options) const {
     TestSummary summary;
-    summary.limits = load_problem_limits(problem);
+    ProblemLimits limits = load_problem_limits(problem);
     if (options.checked && !options.timeout) {
-        if (summary.limits.time_limit < kFallbackTimeLimit) {
-            summary.limits.time_limit = kFallbackTimeLimit;
-            summary.limits.time_from_metadata = false;
+        if (limits.time_limit < kFallbackTimeLimit) {
+            limits.time_limit = kFallbackTimeLimit;
+            limits.time_from_metadata = false;
         }
     }
     if (options.checked && !options.memory_limit_bytes) {
-        summary.limits.memory_limit_bytes.reset();
-        summary.limits.memory_from_metadata = false;
+        limits.memory_limit_bytes.reset();
+        limits.memory_from_metadata = false;
     }
     if (options.timeout) {
-        summary.limits.time_limit = *options.timeout;
-        summary.limits.time_from_metadata = false;
+        limits.time_limit = *options.timeout;
+        limits.time_from_metadata = false;
     }
     if (options.memory_limit_bytes) {
-        summary.limits.memory_limit_bytes = options.memory_limit_bytes;
-        summary.limits.memory_from_metadata = false;
+        limits.memory_limit_bytes = options.memory_limit_bytes;
+        limits.memory_from_metadata = false;
     }
 
     summary.build = builder_.build_problem(
@@ -312,13 +303,13 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
                   << summary.build.digest.substr(0, 12) << "]\n"
                   << "size: source " << format_bytes(summary.build.source_size) << ", binary "
                   << format_bytes(summary.build.binary_size) << '\n'
-                  << "limits: time " << format_duration(summary.limits.time_limit);
-        if (!summary.limits.time_from_metadata && !options.timeout) {
+                  << "limits: time " << format_duration(limits.time_limit);
+        if (!limits.time_from_metadata && !options.timeout) {
             std::cout << " (fallback)";
         }
         std::cout << ", memory "
-                  << (summary.limits.memory_limit_bytes
-                          ? format_bytes(*summary.limits.memory_limit_bytes)
+                  << (limits.memory_limit_bytes
+                          ? format_bytes(*limits.memory_limit_bytes)
                           : std::string("unlimited"))
                   << ", output "
                   << (options.output_limit_bytes ? format_bytes(*options.output_limit_bytes)
@@ -339,6 +330,9 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
     fs::create_directories(run_directory);
 
     int number = 0;
+    std::chrono::milliseconds max_wall_time{0};
+    std::chrono::milliseconds max_cpu_time{0};
+    std::uint64_t peak_memory_bytes = 0;
     for (const Case& test_case : cases) {
         ++number;
         ++summary.total;
@@ -351,11 +345,6 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         if (!fs::is_regular_file(test_case.expected)) {
             std::cout << (options.concise ? test_case.name + ": " : "")
                       << "missing expected output: " << test_case.input.stem().string() << ".out\n";
-            summary.cases.push_back(TestCaseResult{
-                test_case.name,
-                CaseVerdict::missing_expected_output,
-                {},
-            });
             continue;
         }
         const ProcessResult result =
@@ -364,15 +353,14 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
                             .stdin_path = test_case.input,
                             .stdout_path = actual_path,
                             .stderr_path = error_path,
-                            .timeout = summary.limits.time_limit,
+                            .timeout = limits.time_limit,
                             .working_directory = problem.solution_path().parent_path(),
-                            .memory_limit_bytes = summary.limits.memory_limit_bytes,
+                            .memory_limit_bytes = limits.memory_limit_bytes,
                             .output_limit_bytes = options.output_limit_bytes,
                         });
-        summary.elapsed += result.elapsed;
-        summary.max_wall_time = std::max(summary.max_wall_time, result.elapsed);
-        summary.max_cpu_time = std::max(summary.max_cpu_time, result.cpu_time);
-        summary.peak_memory_bytes = std::max(summary.peak_memory_bytes, result.peak_memory_bytes);
+        max_wall_time = std::max(max_wall_time, result.elapsed);
+        max_cpu_time = std::max(max_cpu_time, result.cpu_time);
+        peak_memory_bytes = std::max(peak_memory_bytes, result.peak_memory_bytes);
         if (result.status != 0) {
             const CaseVerdict verdict = process_verdict(result);
             std::cout << (options.concise ? test_case.name + ": " : "") << verdict_name(verdict)
@@ -380,9 +368,8 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
             if (verdict == CaseVerdict::runtime_error) {
                 std::cout << runtime_detail(result) << ", ";
             }
-            std::cout << resource_usage(result, summary.limits) << ")\n";
+            std::cout << resource_usage(result, limits) << ")\n";
             show_stream_if_nonempty("stderr", error_path, std::cerr);
-            summary.cases.push_back(TestCaseResult{test_case.name, verdict, result});
             continue;
         }
 
@@ -391,19 +378,16 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         const std::string expected = read_text(test_case.expected);
         if (normalize_output(actual) == normalize_output(expected)) {
             if (!options.concise) {
-                std::cout << "OK (" << resource_usage(result, summary.limits) << ")\n";
+                std::cout << "OK (" << resource_usage(result, limits) << ")\n";
             }
             ++summary.passed;
-            summary.cases.push_back(TestCaseResult{test_case.name, CaseVerdict::accepted, result});
         } else {
             std::cout << (options.concise ? test_case.name + ": " : "") << "WA ("
-                      << resource_usage(result, summary.limits) << ")\n"
+                      << resource_usage(result, limits) << ")\n"
                       << "expected:\n"
                       << preview(expected)
                       << (expected.empty() || expected.back() == '\n' ? "" : "\n") << "actual:\n"
                       << preview(actual) << (actual.empty() || actual.back() == '\n' ? "" : "\n");
-            summary.cases.push_back(
-                TestCaseResult{test_case.name, CaseVerdict::wrong_answer, result});
         }
     }
     if (options.concise) {
@@ -411,11 +395,11 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
     } else {
         std::cout << summary.passed << '/' << summary.total << " passed";
     }
-    if (!summary.cases.empty()) {
-        std::cout << "; max " << format_duration(summary.max_cpu_time) << " CPU, "
-                  << format_duration(summary.max_wall_time) << " wall";
-        if (summary.peak_memory_bytes != 0) {
-            std::cout << ", " << format_bytes(summary.peak_memory_bytes);
+    if (summary.total != 0) {
+        std::cout << "; max " << format_duration(max_cpu_time) << " CPU, "
+                  << format_duration(max_wall_time) << " wall";
+        if (peak_memory_bytes != 0) {
+            std::cout << ", " << format_bytes(peak_memory_bytes);
         }
     }
     std::cout << '\n';
@@ -565,12 +549,10 @@ std::string format_duration(std::chrono::milliseconds duration) {
     return std::to_string(seconds) + "." + fraction + "s";
 }
 
+namespace {
+
 std::string verdict_name(CaseVerdict verdict) {
     switch (verdict) {
-    case CaseVerdict::accepted:
-        return "OK";
-    case CaseVerdict::wrong_answer:
-        return "WA";
     case CaseVerdict::time_limit_exceeded:
         return "TLE";
     case CaseVerdict::memory_limit_exceeded:
@@ -579,10 +561,10 @@ std::string verdict_name(CaseVerdict verdict) {
         return "OLE";
     case CaseVerdict::runtime_error:
         return "RE";
-    case CaseVerdict::missing_expected_output:
-        return "missing expected output";
     }
     return "unknown";
 }
+
+} // namespace
 
 } // namespace cfx

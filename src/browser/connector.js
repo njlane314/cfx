@@ -106,15 +106,13 @@
       box.textContent = `cfx: ${message}`;
     }
 
-    async function localRequest(request, route, options = {}) {
-      const method = options.method || "GET";
+    async function localRequest(request, route, body = "") {
       const result = await chrome.runtime.sendMessage({
         type: "cfx-local-request",
         port: request.port,
         token: request.token,
         route,
-        method,
-        body: options.body || ""
+        body
       });
       if (!result || result.ok !== true || !Number.isInteger(result.status)) {
         throw new Error(result?.error || "Chrome connector did not return a response");
@@ -127,10 +125,7 @@
     }
 
     async function postLocal(request, route, value) {
-      const response = await localRequest(request, route, {
-        method: "POST",
-        body: JSON.stringify(value)
-      });
+      const response = await localRequest(request, route, JSON.stringify(value));
       if (!response.ok) throw new Error(`local workbench returned HTTP ${response.status}`);
     }
 
@@ -143,33 +138,37 @@
       }
     }
 
-    async function stateRequest(action, operation = "", value) {
-      const result = await chrome.runtime.sendMessage({
-        type: "cfx-submission-state",
-        action,
-        ...(operation ? {operation} : {}),
-        ...(value ? {value} : {})
-      });
+    async function stateRequest(type, kind, action, fields = {}) {
+      const result = await chrome.runtime.sendMessage({type, action, ...fields});
       if (!result || result.ok !== true) {
-        throw new Error(result?.error || "Chrome connector state is unavailable");
+        throw new Error(result?.error || `Chrome connector ${kind}state is unavailable`);
       }
       return result.value;
     }
 
-    async function fetchStateRequest(action, request = {}) {
-      const result = await chrome.runtime.sendMessage({
-        type: "cfx-fetch-state",
-        action,
+    function submissionStateRequest(action, operation = "", value) {
+      return stateRequest("cfx-submission-state", "", action, {
+        ...(operation ? {operation} : {}),
+        ...(value ? {value} : {})
+      });
+    }
+
+    function fetchStateRequest(action, request = {}) {
+      return stateRequest("cfx-fetch-state", "fetch ", action, {
         ...(action !== "load" && request.token ? {operation: request.token} : {}),
         ...(action === "save" ? {
           value: {port: request.port, pathname: problemPath(location), position: 0}
         } : {}),
         ...(action === "advance" ? {position: request.position} : {})
       });
-      if (!result || result.ok !== true) {
-        throw new Error(result?.error || "Chrome connector fetch state is unavailable");
+    }
+
+    async function removeFetchState(request) {
+      try {
+        await fetchStateRequest("remove", request);
+      } catch {
+        // Expiry also removes the operation.
       }
-      return result.value;
     }
 
     function browserCheck() {
@@ -193,11 +192,7 @@
           packageValue = samples.extractProblem(document, location);
         }
         await postLocal(request, "fetch", packageValue);
-        try {
-          await fetchStateRequest("remove", request);
-        } catch {
-          // The local fetch is already complete; expiry will remove stale state.
-        }
+        await removeFetchState(request);
         showStatus(`${packageValue.tests.length} sample pair(s) sent`);
       } catch (error) {
         let message = messageOf(error);
@@ -216,11 +211,7 @@
           }
         }
         await reportQuietly(request, "fetch-error", {message});
-        try {
-          await fetchStateRequest("remove", request);
-        } catch {
-          // Expiry also removes the operation.
-        }
+        await removeFetchState(request);
         showStatus(message, true);
       }
     }
@@ -255,7 +246,7 @@
           submittedAtMillis: now(),
           lastApiRequestMillis
         };
-        await stateRequest("save", request.token, pending);
+        await submissionStateRequest("save", request.token, pending);
         saved = true;
         showStatus(`submitting ${artifact.target}`);
         if (submitter) form.requestSubmit(submitter);
@@ -263,7 +254,7 @@
       } catch (error) {
         if (saved) {
           try {
-            await stateRequest("remove", request.token);
+            await submissionStateRequest("remove", request.token);
           } catch {
             // The original submission error is more useful.
           }
@@ -293,7 +284,7 @@
 
       let stored;
       try {
-        stored = await stateRequest("load");
+        stored = await submissionStateRequest("load");
       } catch (error) {
         showStatus(messageOf(error), true);
         return;
@@ -362,7 +353,7 @@
 
       const reported = await reportQuietly(request, "result", result);
       try {
-        await stateRequest("remove", pending.operation);
+        await submissionStateRequest("remove", pending.operation);
       } catch {
         // Expiry also removes the operation; reporting is already complete.
       }
@@ -403,11 +394,7 @@
         const response = await localRequest(request, "ready");
         if (!response.ok) throw new Error(`local workbench returned HTTP ${response.status}`);
       } catch {
-        try {
-          await fetchStateRequest("remove", request);
-        } catch {
-          // Expiry also removes the operation.
-        }
+        await removeFetchState(request);
         return true;
       }
       await domReady;
@@ -439,11 +426,7 @@
         const message = messageOf(error);
         if (request?.action === "fetch") {
           await reportQuietly(request, "fetch-error", {message});
-          try {
-            await fetchStateRequest("remove", request);
-          } catch {
-            // Expiry also removes the operation.
-          }
+          await removeFetchState(request);
         }
         showStatus(message, true);
         return;
@@ -475,12 +458,10 @@
 
     return {
       dispatchFragment,
-      handleFetch,
       handleSubmit,
       launch,
       resumePendingFetch,
-      resumePendingSubmission,
-      stateRequest
+      resumePendingSubmission
     };
   }
 

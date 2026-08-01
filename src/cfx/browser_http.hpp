@@ -46,7 +46,6 @@ struct Response {
 class Connection {
   public:
     Connection(Connection&& other) noexcept;
-    Connection& operator=(Connection&& other) noexcept;
     ~Connection();
 
     Connection(const Connection&) = delete;
@@ -58,10 +57,9 @@ class Connection {
 
   private:
     friend class Server;
-    Connection(int descriptor, bool loopback);
+    explicit Connection(int descriptor);
 
     int descriptor_ = -1;
-    bool loopback_ = false;
 };
 
 class Server {

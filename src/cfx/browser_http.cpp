@@ -209,20 +209,10 @@ std::string header(const RequestHead& request, std::string_view name) {
     return found == request.headers.end() ? std::string() : found->second;
 }
 
-Connection::Connection(int descriptor, bool loopback)
-    : descriptor_(descriptor), loopback_(loopback) {}
+Connection::Connection(int descriptor) : descriptor_(descriptor) {}
 
 Connection::Connection(Connection&& other) noexcept
-    : descriptor_(std::exchange(other.descriptor_, -1)), loopback_(other.loopback_) {}
-
-Connection& Connection::operator=(Connection&& other) noexcept {
-    if (this != &other) {
-        close_descriptor(descriptor_);
-        descriptor_ = std::exchange(other.descriptor_, -1);
-        loopback_ = other.loopback_;
-    }
-    return *this;
-}
+    : descriptor_(std::exchange(other.descriptor_, -1)) {}
 
 Connection::~Connection() {
     close_descriptor(descriptor_);
@@ -230,10 +220,6 @@ Connection::~Connection() {
 
 Request Connection::read(const std::chrono::steady_clock::time_point& deadline,
                          const std::function<std::size_t(const RequestHead&)>& body_limit) {
-    if (!loopback_) {
-        throw Error(403, "HTTP server only accepts loopback clients");
-    }
-
     std::string input;
     std::size_t separator = std::string::npos;
     while ((separator = input.find("\r\n\r\n")) == std::string::npos) {
@@ -343,10 +329,6 @@ Server::Server() {
     }
     try {
         set_close_on_exec(descriptor_);
-        const int enabled = 1;
-        if (::setsockopt(descriptor_, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)) != 0) {
-            throw std::runtime_error(system_error("cannot configure HTTP server"));
-        }
         sockaddr_in address{};
         address.sin_family = AF_INET;
         address.sin_port = htons(0);
@@ -400,10 +382,7 @@ Server::accept_until(const std::chrono::steady_clock::time_point& deadline,
             throw std::runtime_error(system_error("cannot wait for HTTP client"));
         }
 
-        sockaddr_in peer{};
-        socklen_t peer_size = sizeof(peer);
-        const int connection =
-            ::accept(descriptor_, reinterpret_cast<sockaddr*>(&peer), &peer_size);
+        const int connection = ::accept(descriptor_, nullptr, nullptr);
         if (connection < 0) {
             if (errno == EINTR) {
                 continue;
@@ -417,9 +396,7 @@ Server::accept_until(const std::chrono::steady_clock::time_point& deadline,
             (void)::close(connection);
             throw;
         }
-        const bool loopback =
-            peer.sin_family == AF_INET && peer.sin_addr.s_addr == htonl(INADDR_LOOPBACK);
-        return Connection(connection, loopback);
+        return Connection(connection);
     }
 }
 

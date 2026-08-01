@@ -23,10 +23,7 @@ fs::path normalized_absolute(const fs::path& path) {
     return error ? absolute.lexically_normal() : canonical;
 }
 
-fs::path select_template(const fs::path& root, const fs::path& requested_template) {
-    if (!requested_template.empty()) {
-        return requested_template.is_absolute() ? requested_template : root / requested_template;
-    }
+fs::path select_template(const fs::path& root) {
     const auto local = root / ".cfx" / "solution.cpp";
     if (fs::exists(local)) {
         return local;
@@ -47,12 +44,9 @@ fs::path current_problem_path(const fs::path& root) {
 
 Workspace::Workspace(fs::path root) : root_(normalized_absolute(std::move(root))) {}
 
-WorkspaceResult Workspace::create(const Problem& problem, const fs::path& template_path) const {
+fs::path Workspace::create(const Problem& problem) const {
     Problem local(problem.contest_id(), problem.index(), root_);
-    WorkspaceResult result{
-        .solution = local.solution_path(),
-        .solution_created = false,
-    };
+    const fs::path solution = local.solution_path();
 
     const std::vector<fs::path> directories = {
         local.directory(),
@@ -69,23 +63,22 @@ WorkspaceResult Workspace::create(const Problem& problem, const fs::path& templa
         }
     }
 
-    if (!fs::exists(result.solution)) {
-        const auto source_template = select_template(root_, template_path);
+    if (!fs::exists(solution)) {
+        const auto source_template = select_template(root_);
         if (!fs::is_regular_file(source_template)) {
             throw WorkspaceError("solution template is not a file: '" + source_template.string() +
                                  "'");
         }
         try {
-            write_text(result.solution, read_text(source_template));
+            write_text(solution, read_text(source_template));
         } catch (const std::exception& error) {
             throw WorkspaceError(error.what());
         }
-        result.solution_created = true;
-    } else if (!fs::is_regular_file(result.solution)) {
-        throw WorkspaceError("solution path is not a file: '" + result.solution.string() + "'");
+    } else if (!fs::is_regular_file(solution)) {
+        throw WorkspaceError("solution path is not a file: '" + solution.string() + "'");
     }
 
-    return result;
+    return solution;
 }
 
 void remember_current_problem(const Problem& problem, const fs::path& root) {

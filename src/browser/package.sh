@@ -41,20 +41,6 @@ if [[ ! $extension_id =~ ^[a-p]{32}$ ]]; then
     exit 1
 fi
 
-derive_id_with_openssl() {
-    local digest
-    digest=$(
-        printf '%s' "$manifest_key" |
-            openssl base64 -d -A 2>/dev/null |
-            openssl dgst -sha256 -binary |
-            od -An -tx1 |
-            tr -d ' \n' |
-            cut -c1-32
-    ) || return 1
-    [[ ${#digest} -eq 32 ]] || return 1
-    printf '%s\n' "$digest" | tr '0123456789abcdef' 'abcdefghijklmnop'
-}
-
 derive_id_with_node() {
     node - "$manifest" <<'NODE'
 const crypto = require("node:crypto");
@@ -71,25 +57,8 @@ process.stdout.write(id + "\n");
 NODE
 }
 
-derived_id=
-derivation_tool_found=false
-if command -v openssl >/dev/null 2>&1 && command -v od >/dev/null 2>&1; then
-    derivation_tool_found=true
-    derived_id=$(derive_id_with_openssl) || derived_id=
-fi
-if [[ -z $derived_id ]] && command -v node >/dev/null 2>&1; then
-    derivation_tool_found=true
-    if ! derived_id=$(derive_id_with_node); then
-        echo "browser package: cannot decode the manifest public key" >&2
-        exit 1
-    fi
-fi
-if [[ -z $derived_id ]]; then
-    if [[ $derivation_tool_found == true ]]; then
-        echo "browser package: cannot decode the manifest public key" >&2
-    else
-        echo "browser package: openssl (plus od) or node is required to verify the extension ID" >&2
-    fi
+if ! derived_id=$(derive_id_with_node); then
+    echo "browser package: cannot decode the manifest public key" >&2
     exit 1
 fi
 

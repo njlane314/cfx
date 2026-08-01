@@ -13,19 +13,13 @@ class WorkspaceError : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-struct WorkspaceResult {
-    std::filesystem::path solution;
-    bool solution_created = false;
-};
-
 class Workspace {
   public:
     explicit Workspace(std::filesystem::path root = std::filesystem::current_path());
 
     // Creates codeforces/<contest>/<index> without overwriting an existing
-    // solution. Template precedence is explicit, .cfx/solution.cpp, packaged.
-    WorkspaceResult create(const Problem& problem,
-                           const std::filesystem::path& template_path = {}) const;
+    // solution. A repository template overrides the packaged template.
+    std::filesystem::path create(const Problem& problem) const;
 
   private:
     std::filesystem::path root_;

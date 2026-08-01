@@ -215,7 +215,7 @@ void open_editor(const fs::path& solution) {
 
 int command_problem(const std::vector<std::string>& values, const fs::path& root) {
     const Problem problem = resolve_problem(values, root);
-    const cfx::WorkspaceResult workspace = cfx::Workspace(root).create(problem);
+    const fs::path solution = cfx::Workspace(root).create(problem);
 
     const std::string payload = cfx::fetch_problem_in_browser(cfx::problem_url(problem));
     const cfx::CompanionPackage package = cfx::parse_companion_package(payload, root);
@@ -233,8 +233,8 @@ int command_problem(const std::vector<std::string>& values, const fs::path& root
     std::cout << '\n'
               << "Imported " << imported.sample_count << ' '
               << (imported.sample_count == 1 ? "sample" : "samples") << '\n'
-              << "Opened " << display_path(workspace.solution, root) << '\n';
-    open_editor(workspace.solution);
+              << "Opened " << display_path(solution, root) << '\n';
+    open_editor(solution);
     return 0;
 }
 

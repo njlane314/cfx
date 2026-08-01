@@ -181,17 +181,15 @@ void test_workspace_creation_is_idempotent() {
     const auto problem = cfx::Problem::parse("2227A", root);
     const cfx::Workspace workspace(root);
     const auto first = workspace.create(problem);
-    require(first.solution_created, "solution created");
-    require(read(first.solution) == "// template\n", "template copied");
+    require(read(first) == "// template\n", "template copied");
     require(fs::is_directory(problem.samples_path()), "samples created");
     require(!fs::exists(root / ".cfx"), "runtime state stays outside archive");
     require(fs::is_directory(problem.cases_path()), "cases created");
     require(fs::is_directory(problem.stress_path()), "stress created");
 
-    write(first.solution, "// keep me\n");
+    write(first, "// keep me\n");
     const auto second = workspace.create(problem);
-    require(!second.solution_created, "existing solution not recreated");
-    require(read(second.solution) == "// keep me\n", "existing solution not overwritten");
+    require(read(second) == "// keep me\n", "existing solution not overwritten");
 }
 
 void test_separate_asset_root() {
@@ -208,7 +206,7 @@ void test_separate_asset_root() {
 
     const auto problem = cfx::Problem::parse("71A", workspace.path());
     const auto created = cfx::Workspace(workspace.path()).create(problem);
-    require(read(created.solution) == "// installed template\n",
+    require(read(created) == "// installed template\n",
             "workspace uses template from separate asset root");
     require(cfx::asset_root(workspace.path()) == fs::weakly_canonical(assets.path()),
             "configured asset root resolves independently");
@@ -216,15 +214,8 @@ void test_separate_asset_root() {
     write(workspace.path() / ".cfx" / "solution.cpp", "// archive template\n");
     const auto local_problem = cfx::Problem::parse("72A", workspace.path());
     const auto local_created = cfx::Workspace(workspace.path()).create(local_problem);
-    require(read(local_created.solution) == "// archive template\n",
+    require(read(local_created) == "// archive template\n",
             "archive template overrides installed template");
-
-    write(workspace.path() / "explicit.cpp", "// explicit template\n");
-    const auto explicit_problem = cfx::Problem::parse("73A", workspace.path());
-    const auto explicit_created =
-        cfx::Workspace(workspace.path()).create(explicit_problem, "explicit.cpp");
-    require(read(explicit_created.solution) == "// explicit template\n",
-            "explicit template overrides archive template");
 
     write(workspace.path() / "solution.cpp",
           "#include <cp/value>\nint main() { return value; }\n");

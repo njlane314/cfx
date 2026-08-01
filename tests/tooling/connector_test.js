@@ -185,6 +185,7 @@ async function submitFlowTest() {
   assert.equal(savedValue.target, "71A");
   assert.equal(savedValue.submittedAtMillis, 20000);
   assert.deepEqual(messages.map(message => message.route || message.action), ["submission", "save"]);
+  assert.equal("method" in messages[0], false);
 }
 
 async function resumeFlowTest(polls, expected, options = {}) {
