@@ -436,33 +436,21 @@ void test_companion_import(const fs::path& root) {
                                 R"("tests":[{"input":"1\nword\n","output":"word\n"}]})";
     const cfx::CompanionPackage package = cfx::parse_companion_package(payload, root);
     check(package.problem.id() == "71A", "Companion URL parsing");
-    const cfx::ImportResult first = cfx::import_companion_package(package, root);
-    check(first.files_written == 2, "first Companion import writes pair");
+    cfx::import_companion_package(package, root);
     check(read(package.problem.samples_path() / "01.in") == "1\nword\n", "Companion input content");
-    const cfx::ImportResult second = cfx::import_companion_package(package, root);
-    check(second.files_written == 0, "Companion import is idempotent");
+    cfx::import_companion_package(package, root);
 
     write(package.problem.samples_path() / "02.in", "stale\n");
     write(package.problem.samples_path() / "02.out", "stale\n");
-    check_throws([&] { (void)cfx::import_companion_package(package, root); },
-                 "shorter sample refresh requires force");
-    check(fs::is_regular_file(package.problem.samples_path() / "02.in"),
-          "rejected refresh preserves stale pair");
-    const cfx::ImportResult shortened = cfx::import_companion_package(package, root, true);
-    check(shortened.files_written == 2, "forced refresh replaces complete set");
+    cfx::import_companion_package(package, root);
     check(!fs::exists(package.problem.samples_path() / "02.in") &&
               !fs::exists(package.problem.samples_path() / "02.out"),
-          "forced refresh removes stale pairs");
+          "refresh removes stale pairs");
 
     cfx::CompanionPackage changed = package;
     changed.samples.front().input = "different\n";
-    check_throws([&] { (void)cfx::import_companion_package(changed, root); },
-                 "differing sample pair requires force");
-    check(read(package.problem.samples_path() / "01.in") == "1\nword\n",
-          "failed pair update preserves existing input");
-    const cfx::ImportResult forced = cfx::import_companion_package(changed, root, true);
-    check(forced.files_written == 2, "forced pair refresh");
-    check(read(package.problem.samples_path() / "01.in") == "different\n", "forced input content");
+    cfx::import_companion_package(changed, root);
+    check(read(package.problem.samples_path() / "01.in") == "different\n", "refreshed input");
 }
 
 void test_problem_limits_and_verdicts(const fs::path& root) {
@@ -537,9 +525,7 @@ void test_submission_preparation(const fs::path& root) {
     const cfx::SubmissionArtifact artifact = cfx::prepare_submission(root, problem);
     check(fs::is_regular_file(artifact.source), "submission artifact exists");
     check(artifact.source_text == read(artifact.source), "submission carries the pinned source");
-    check(artifact.authored_source_text == read(artifact.authored_source),
-          "submission carries the authored snapshot");
-    check(artifact.authored_source_text == read(problem.solution_path()),
+    check(read(artifact.source.parent_path() / "solution.cpp") == read(problem.solution_path()),
           "authored snapshot matches the solution");
     check(artifact.target == "88A", "submission target");
     check(artifact.language == "GNU C++20", "submission language");

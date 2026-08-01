@@ -12,9 +12,6 @@ struct SubmissionArtifact {
     std::filesystem::path source;
     std::string source_text;
     std::string source_hash;
-    std::filesystem::path authored_source;
-    std::string authored_source_text;
-    std::string authored_source_hash;
     std::string target;
     std::string language;
     std::string page_url;

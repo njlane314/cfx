@@ -15,11 +15,16 @@ tar -xzf "$archive" -C "$work"
 package=${archive##*/}
 package=${package%.tar.gz}
 for path in bin/cfx libexec/cfx share/cfx/templates/solution.cpp \
-    share/cfx/include/cp/types share/cfx/include/cp/segment_tree \
     share/cfx/browser/extension-id \
     share/man/man1/cfx.1 LICENSE; do
     [[ -e $work/$package/$path ]] || { echo "release test: package lacks $path" >&2; exit 1; }
 done
+for header in types utility contract debug disjoint_set fenwick_tree segment_tree modint kmp; do
+    path=$work/$package/share/cfx/include/cp/$header
+    [[ -f $path ]] || { echo "release test: package lacks include/cp/$header" >&2; exit 1; }
+done
+legacy=$(find "$work/$package/share/cfx/include/cp" -type f -name '*.hpp' -print -quit)
+[[ -z $legacy ]] || { echo "release test: package contains legacy header $legacy" >&2; exit 1; }
 grep -q '^\.TH CFX 1 ' "$work/$package/share/man/man1/cfx.1"
 ! grep -q '\\-\\-remote-check' "$work/$package/share/man/man1/cfx.1"
 "$work/$package/bin/cfx" --help >/dev/null

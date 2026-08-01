@@ -13,6 +13,7 @@
 namespace cp {
 
 // Knuth-Morris-Pratt matching over bytes; an empty pattern matches every boundary.
+// Pattern and text sizes must fit index_type; oversized input is always rejected.
 class kmp_matcher {
   public:
     explicit kmp_matcher(std::string pattern)
@@ -34,7 +35,10 @@ class kmp_matcher {
         std::vector<index_type> matches;
         if (pattern_.empty()) {
             matches.reserve(offset(text_size) + 1);
-            for (index_type index = 0; index <= text_size; ++index) matches.push_back(index);
+            for (index_type index = 0;; ++index) {
+                matches.push_back(index);
+                if (index == text_size) break;
+            }
             return matches;
         }
 
@@ -59,8 +63,8 @@ class kmp_matcher {
         return static_cast<index_type>(prefix_.size());
     }
     static index_type checked_size(std::size_t count) {
-        CP_EXPECT(count <= static_cast<std::size_t>(std::numeric_limits<index_type>::max()),
-                  "kmp: input is too large");
+        if (count > static_cast<std::size_t>(std::numeric_limits<index_type>::max()))
+            detail::contract_fail("count <= max(index_type)", "kmp: input is too large");
         return static_cast<index_type>(count);
     }
     static std::size_t offset(index_type index) noexcept {

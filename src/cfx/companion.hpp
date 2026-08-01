@@ -2,7 +2,6 @@
 
 #include "problem.hpp"
 
-#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -24,16 +23,10 @@ struct CompanionPackage {
     std::vector<Sample> samples;
 };
 
-struct ImportResult {
-    Problem problem;
-    std::size_t sample_count = 0;
-    std::size_t files_written = 0;
-};
-
 CompanionPackage parse_companion_package(std::string_view payload,
                                          const std::filesystem::path& root);
 
-ImportResult import_companion_package(const CompanionPackage& package,
-                                      const std::filesystem::path& root, bool force = false);
+void import_companion_package(const CompanionPackage& package,
+                              const std::filesystem::path& root);
 
 } // namespace cfx

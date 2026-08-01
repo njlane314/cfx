@@ -45,6 +45,25 @@ for source in "$script_dir"/test_*.cpp; do
     "$build_dir/$name"
 done
 
+expect_contract() {
+    local mode=$1
+    local message=$2
+    local output=$build_dir/contract-$mode.log
+    if bash -c 'ulimit -c 0; "$1" "$2"; exit $?' \
+        _ "$build_dir/test_library" "$mode" >"$output" 2>&1; then
+        echo "library tests: contract case did not fail: $mode" >&2
+        exit 1
+    fi
+    grep -Fq "cp: $message" "$output"
+    grep -Fq '  expected: ' "$output"
+    grep -Fq '  at: ' "$output"
+}
+
+expect_contract disjoint-size 'disjoint_set: negative size'
+expect_contract fenwick-index 'fenwick_tree: invalid position'
+expect_contract segment-range 'segment_tree: invalid range'
+expect_contract modint-inverse 'modint: value has no multiplicative inverse'
+
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
     "$repo_root/assets/templates/solution.cpp" \

@@ -223,7 +223,7 @@ int command_problem(const std::vector<std::string>& values, const fs::path& root
         throw std::runtime_error("browser returned " + package.problem.id() + " while fetching " +
                                  problem.id());
     }
-    const cfx::ImportResult imported = cfx::import_companion_package(package, root, true);
+    cfx::import_companion_package(package, root);
     cfx::remember_current_problem(problem, root);
 
     std::cout << "Fetched " << problem.id();
@@ -231,8 +231,8 @@ int command_problem(const std::vector<std::string>& values, const fs::path& root
         std::cout << " — " << package.name;
     }
     std::cout << '\n'
-              << "Imported " << imported.sample_count << ' '
-              << (imported.sample_count == 1 ? "sample" : "samples") << '\n'
+              << "Imported " << package.samples.size() << ' '
+              << (package.samples.size() == 1 ? "sample" : "samples") << '\n'
               << "Opened " << display_path(solution, root) << '\n';
     open_editor(solution);
     return 0;

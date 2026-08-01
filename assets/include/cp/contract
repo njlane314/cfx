@@ -19,6 +19,8 @@ namespace cp::detail {
 
 } // namespace cp::detail
 
+// LOCAL checks contracts with diagnostics. Submission builds preserve type
+// checking but evaluate neither the condition nor the message.
 #if defined(LOCAL)
 #define CP_EXPECT(condition, message)                                                          \
     do {                                                                                       \

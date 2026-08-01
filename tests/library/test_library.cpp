@@ -40,6 +40,12 @@ static_assert(mint::modulus() == 1'000'000'007U);
 static_assert(mint{-1}.value() == 1'000'000'006U);
 static_assert((mint{10} + mint{20}).value() == 30);
 static_assert(mint{2}.pow(10).value() == 1'024);
+#if defined(__SIZEOF_INT128__)
+constexpr cp::u128 huge = (static_cast<cp::u128>(1) << 100) + 7;
+constexpr auto huge_remainder = static_cast<std::uint32_t>(huge % mint::modulus());
+static_assert(mint{huge}.value() == huge_remainder);
+static_assert(mint{-static_cast<cp::i128>(huge)}.value() == mint::modulus() - huge_remainder);
+#endif
 
 std::size_t offset(cp::index_type index) { return static_cast<std::size_t>(index); }
 
@@ -245,9 +251,24 @@ void test_kmp() {
     }
 }
 
+int contract_case(std::string_view name) {
+    if (name == "disjoint-size") {
+        const cp::disjoint_set invalid(-1);
+        static_cast<void>(invalid);
+    } else if (name == "fenwick-index") {
+        static_cast<void>(cp::fenwick_tree<int>(1).get(-1));
+    } else if (name == "segment-range") {
+        static_cast<void>(cp::segment_tree<int>(1).fold(1, 0));
+    } else if (name == "modint-inverse") {
+        static_cast<void>(cp::modint<12>{6}.inverse());
+    }
+    return 2;
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2) return contract_case(argv[1]);
     test_contract_and_debug();
     test_disjoint_set();
     test_fenwick_tree();

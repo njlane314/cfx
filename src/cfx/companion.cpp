@@ -141,8 +141,7 @@ CompanionPackage parse_companion_package(std::string_view payload, const fs::pat
     return package;
 }
 
-ImportResult import_companion_package(const CompanionPackage& package, const fs::path& root,
-                                      bool force) {
+void import_companion_package(const CompanionPackage& package, const fs::path& root) {
     recover_sample_transaction(package.problem);
     Workspace(root).create(package.problem);
     const fs::path samples = package.problem.samples_path();
@@ -164,13 +163,11 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
     }
 
     bool identical = true;
-    std::size_t existing_sample_files = 0;
     for (const fs::directory_entry& entry : fs::directory_iterator(samples)) {
         if (!entry.is_regular_file()) {
             continue;
         }
         if (entry.path().extension() == ".in" || entry.path().extension() == ".out") {
-            ++existing_sample_files;
             const std::string name = entry.path().filename().string();
             const bool known =
                 std::any_of(expected.begin(), expected.end(), [&](const Expected& value) {
@@ -190,13 +187,7 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
         }
     }
 
-    std::size_t files_written = 0;
     if (!identical) {
-        if (existing_sample_files != 0 && !force) {
-            throw std::runtime_error("fetched samples differ from the current package "
-                                     "(use --force to replace the complete set)");
-        }
-
         const fs::path state = package.problem.state_directory();
         const fs::path stage = state / (".samples.stage." + std::to_string(::getpid()));
         const fs::path backup = state / ".samples.backup";
@@ -217,7 +208,6 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
                 throw;
             }
             fs::remove_all(backup, ignored);
-            files_written = expected.size() * 2;
         } catch (...) {
             fs::remove_all(stage, ignored);
             if (!fs::exists(samples) && fs::exists(backup)) {
@@ -246,12 +236,6 @@ ImportResult import_companion_package(const CompanionPackage& package, const fs:
                                std::to_string(package.memory_limit_mb) +
                                "\n"
                                "}\n");
-
-    return ImportResult{
-        package.problem,
-        package.samples.size(),
-        files_written,
-    };
 }
 
 } // namespace cfx

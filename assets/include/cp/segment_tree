@@ -12,7 +12,8 @@
 
 namespace cp {
 
-// Point updates and order-preserving folds over half-open ranges.
+// Point updates and order-preserving folds over half-open ranges. combine must
+// be associative and identity must be a two-sided identity. LOCAL checks ranges.
 template <class T, class BinaryOperation = std::plus<T>> class segment_tree {
   public:
     using value_type = T;
@@ -20,7 +21,7 @@ template <class T, class BinaryOperation = std::plus<T>> class segment_tree {
 
     explicit segment_tree(index_type count, T identity = T{}, BinaryOperation combine = {})
         : size_(checked_size(count)), base_(tree_base(size_)), identity_(std::move(identity)),
-          combine_(std::move(combine)), data_(2 * base_, identity_) {}
+          combine_(std::move(combine)), data_(tree_storage(base_), identity_) {}
     explicit segment_tree(std::span<const T> values, T identity = T{},
                           BinaryOperation combine = {})
         : segment_tree(checked_size(values.size()), std::move(identity), std::move(combine)) {
@@ -73,8 +74,8 @@ template <class T, class BinaryOperation = std::plus<T>> class segment_tree {
         return count < 0 ? 0 : count;
     }
     static index_type checked_size(std::size_t count) {
-        CP_EXPECT(count <= static_cast<std::size_t>(std::numeric_limits<index_type>::max()),
-                  "segment_tree: input is too large");
+        if (count > static_cast<std::size_t>(std::numeric_limits<index_type>::max()))
+            detail::contract_fail("count <= max(index_type)", "segment_tree: input is too large");
         return static_cast<index_type>(count);
     }
     static std::size_t offset(index_type index) noexcept {
@@ -84,6 +85,11 @@ template <class T, class BinaryOperation = std::plus<T>> class segment_tree {
         std::size_t base = 1;
         while (base < offset(count)) base *= 2;
         return base;
+    }
+    static std::size_t tree_storage(std::size_t base) {
+        if (base > std::numeric_limits<std::size_t>::max() / 2)
+            detail::contract_fail("base <= max(size_t) / 2", "segment_tree: input is too large");
+        return 2 * base;
     }
     void pull(std::size_t node) { data_[node] = combine_(data_[2 * node], data_[2 * node + 1]); }
     void expect_element(index_type position) const {

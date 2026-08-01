@@ -10,7 +10,8 @@
 
 namespace cp {
 
-// Zero-based additive Fenwick tree; all ranges are half-open.
+// Zero-based additive Fenwick tree; all ranges are half-open. T must support
+// T{}, +=, and subtraction. Indices and boundaries are checked under LOCAL.
 template <class T> class fenwick_tree {
   public:
     using value_type = T;
@@ -60,8 +61,8 @@ template <class T> class fenwick_tree {
         return count < 0 ? 0 : count;
     }
     static index_type checked_size(std::size_t count) {
-        CP_EXPECT(count <= static_cast<std::size_t>(std::numeric_limits<index_type>::max()),
-                  "fenwick_tree: input is too large");
+        if (count > static_cast<std::size_t>(std::numeric_limits<index_type>::max()))
+            detail::contract_fail("count <= max(index_type)", "fenwick_tree: input is too large");
         return static_cast<index_type>(count);
     }
     static std::size_t offset(index_type index) noexcept {

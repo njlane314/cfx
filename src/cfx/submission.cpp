@@ -129,8 +129,6 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
         read_text(authored_path) != authored_source) {
         throw std::runtime_error("submission stopped: source changed while snapshots were saved");
     }
-    const std::string authored_hash = content_digest(authored_source);
-
     const fs::path directory = cfx::state_root(root) / "submissions" / "prepared" /
                                (problem.id() + "-" + hash.substr(0, 16));
     fs::create_directories(directory);
@@ -143,9 +141,6 @@ SubmissionArtifact prepare_submission(const fs::path& root, const Problem& probl
         artifact,
         source,
         hash,
-        authored_artifact,
-        authored_source,
-        authored_hash,
         problem.id(),
         language_name(configured_standard()),
         submission_url(problem),
