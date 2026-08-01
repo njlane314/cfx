@@ -12,7 +12,7 @@ if ! command -v zip >/dev/null 2>&1; then
     exit 1
 fi
 if ! command -v node >/dev/null 2>&1; then
-    echo "browser package: node is required to generate the extension icons" >&2
+    echo "browser package: node is required to verify the extension identity" >&2
     exit 1
 fi
 
@@ -72,24 +72,14 @@ archive=$output_dir/cfx-connector-$version.zip
 stage=$(mktemp -d "${TMPDIR:-/tmp}/cfx-browser.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 
-mkdir -p "$stage/icons" "$output_dir"
+mkdir -p "$output_dir"
 cp "$manifest" \
     "$script_dir/background.js" \
     "$script_dir/samples.js" \
     "$script_dir/submission.js" \
     "$script_dir/connector.js" \
     "$stage/"
-node "$script_dir/icon.js" "$stage/icons" >/dev/null
-node - "$stage/manifest.json" <<'NODE'
-const fs = require("node:fs");
-
-const path = process.argv[2];
-const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
-manifest.icons = Object.fromEntries(
-    [16, 32, 48, 128].map((size) => [size, `icons/icon-${size}.png`])
-);
-fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
-NODE
+cp -R "$script_dir/icons" "$stage/"
 
 rm -f "$archive"
 (
