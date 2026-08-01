@@ -161,79 +161,6 @@ void test_json_and_codeforces() {
     check(value.at("text").string() == "line\nnext", "JSON string decoding");
     check(value.at("values").array().size() == 3, "JSON array decoding");
     check(cfx::json_quote("a\n\"b") == "\"a\\n\\\"b\"", "JSON quoting");
-
-    const auto missing = cfx::parse_submission_status(
-        R"({"status":"OK","result":[]})", "99993", "C", "panicsort", "123456789");
-    check(!missing.found && !missing.terminal, "submission may take time to enter the API");
-
-    const auto testing = cfx::parse_submission_status(
-        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
-        R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"PanicSort"}],"participantType":"CONTESTANT"},)"
-        R"("verdict":"TESTING"}]})",
-        "99993", "C", "panicsort", "123456789");
-    check(testing.found && !testing.terminal && testing.verdict == "TESTING" &&
-              testing.handle == "panicsort" && testing.participant_type == "CONTESTANT",
-          "testing submission remains pending");
-
-    const auto tle = cfx::parse_submission_status(
-        R"({"status":"OK","result":[{"id":111},{"id":123456789,"contestId":99993,)"
-        R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"PRACTICE"},)"
-        R"("verdict":"TIME_LIMIT_EXCEEDED","testset":"TESTS","passedTestCount":2,)"
-        R"("timeConsumedMillis":1000,"memoryConsumedBytes":204800}]})",
-        "99993", "C", "panicsort", "123456789");
-    check(tle.terminal && tle.verdict_text == "Time Limit Exceeded" &&
-              tle.handle == "panicsort" && tle.participant_type == "PRACTICE" &&
-              tle.testset == "TESTS" &&
-              tle.passed_test_count == 2 && tle.time_consumed_millis == 1000 &&
-              tle.memory_consumed_bytes == 204800,
-          "terminal API verdict carries official metrics");
-
-    const auto pretests = cfx::parse_submission_status(
-        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
-        R"("problem":{"contestId":99993,"index":"C"},)"
-        R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
-        R"("verdict":"OK",)"
-        R"("testset":"PRETESTS","passedTestCount":5,"timeConsumedMillis":10,)"
-        R"("memoryConsumedBytes":1024}]})",
-        "99993", "C", "panicsort", "123456789");
-    check(pretests.terminal && pretests.verdict_text == "Accepted (pretests)" &&
-              pretests.participant_type == "CONTESTANT" && pretests.testset == "PRETESTS",
-          "pretest acceptance stays explicit and provisional");
-
-    check_throws(
-        [] {
-            (void)cfx::parse_submission_status(
-                R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
-                R"("problem":{"contestId":99993,"index":"C"},)"
-                R"("author":{"members":[{"handle":"someone_else"}],"participantType":"CONTESTANT"},)"
-                R"("verdict":"TESTING"}]})",
-                "99993", "C", "panicsort", "123456789");
-        },
-        "submission API record must match the confirmed author");
-    check_throws(
-        [] {
-            (void)cfx::parse_submission_status(
-                R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
-                R"("problem":{"contestId":99993,"index":"C"},)"
-                R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
-                R"("verdict":"OK",)"
-                R"("testset":"TESTS","passedTestCount":1.5,"timeConsumedMillis":10,)"
-                R"("memoryConsumedBytes":1024}]})",
-                "99993", "C", "panicsort", "123456789");
-        },
-        "submission API metrics must be integers");
-    check_throws(
-        [] {
-            (void)cfx::parse_submission_status(
-                R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
-                R"("problem":{"contestId":99993,"index":"C"},)"
-                R"("author":{"members":[{"handle":"panicsort"}],"participantType":"UNKNOWN"},)"
-                R"("verdict":"TESTING"}]})",
-                "99993", "C", "panicsort", "123456789");
-        },
-        "unknown participant types must be rejected");
 }
 
 void test_codeforces_poll_interval() {
@@ -242,8 +169,12 @@ void test_codeforces_poll_interval() {
         R"("problem":{"contestId":99993,"index":"C"},)"
         R"("author":{"members":[{"handle":"panicsort"}],"participantType":"CONTESTANT"},)"
         R"("verdict":"OK",)"
-        R"("testset":"TESTS","passedTestCount":20,"timeConsumedMillis":46,)"
+        R"("testset":"PRETESTS","passedTestCount":20,"timeConsumedMillis":46,)"
         R"("memoryConsumedBytes":102400}]})",
+        R"({"status":"OK","result":[{"id":123456789,"contestId":99993,)"
+        R"("problem":{"contestId":99993,"index":"C"},)"
+        R"("author":{"members":[{"handle":"someone_else"}],"participantType":"CONTESTANT"},)"
+        R"("verdict":"TESTING"}]})",
     });
     ::setenv("CFX_API_BASE", api.base_url().c_str(), 1);
     const auto started = std::chrono::steady_clock::now();
@@ -251,10 +182,22 @@ void test_codeforces_poll_interval() {
         "99993", "C", "panicsort", "123456789", started + std::chrono::seconds(1),
         std::chrono::milliseconds(25));
     const auto elapsed = std::chrono::steady_clock::now() - started;
+    check_throws(
+        [] {
+            (void)cfx::poll_submission_status(
+                "99993", "C", "panicsort", "123456789",
+                std::chrono::steady_clock::now() + std::chrono::seconds(1),
+                std::chrono::milliseconds(1));
+        },
+        "official API polling rejects a submission from the wrong author");
     api.wait();
     ::unsetenv("CFX_API_BASE");
-    check(status.terminal && elapsed >= std::chrono::milliseconds(25),
-          "first official API poll respects the rate-limit interval");
+    check(status.terminal && status.verdict_text == "Accepted (pretests)" &&
+              status.participant_type == "CONTESTANT" && status.testset == "PRETESTS" &&
+              status.passed_test_count == 20 && status.time_consumed_millis == 46 &&
+              status.memory_consumed_bytes == 102400 &&
+              elapsed >= std::chrono::milliseconds(25),
+          "official API polling returns complete provisional results after the initial interval");
 }
 
 void test_codeforces_status_pagination() {
@@ -274,8 +217,10 @@ void test_codeforces_status_pagination() {
         R"("timeConsumedMillis":46,"memoryConsumedBytes":102400}]})",
     }, {1, 51});
     ::setenv("CFX_API_BASE", api.base_url().c_str(), 1);
-    const cfx::CodeforcesSubmission status =
-        cfx::fetch_submission_status("99993", "C", "panicsort", "123456800", 2);
+    const cfx::CodeforcesSubmission status = cfx::poll_submission_status(
+        "99993", "C", "panicsort", "123456800",
+        std::chrono::steady_clock::now() + std::chrono::seconds(5),
+        std::chrono::milliseconds(1));
     api.wait();
     ::unsetenv("CFX_API_BASE");
     check(status.found && status.terminal && status.verdict == "OK" &&

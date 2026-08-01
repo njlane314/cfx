@@ -103,28 +103,6 @@ std::uint64_t required_integer(const Json& object, std::string_view name) {
     return nonnegative_integer(*value, name);
 }
 
-struct SubmissionPage {
-    std::size_t size = 0;
-    std::uint64_t oldest_id = 0;
-};
-
-SubmissionPage submission_page(std::string_view response) {
-    const Json document = parse_json(response);
-    const Json& result = api_result(document);
-    if (!result.is_array()) {
-        throw std::runtime_error("Codeforces API returned invalid submission data");
-    }
-    SubmissionPage page{result.array().size(), 0};
-    for (const Json& submission : result.array()) {
-        if (!submission.is_object()) {
-            throw std::runtime_error("Codeforces API returned an invalid submission");
-        }
-        const std::uint64_t id = required_integer(submission, "id");
-        page.oldest_id = page.oldest_id == 0 ? id : std::min(page.oldest_id, id);
-    }
-    return page;
-}
-
 std::uint64_t decimal_id(std::string_view value, std::string_view name) {
     std::uint64_t result = 0;
     const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
@@ -240,27 +218,33 @@ std::string validate_submission(const Json& submission, std::uint64_t contest,
     return value;
 }
 
-} // namespace
+struct SubmissionStatusPage {
+    CodeforcesSubmission status;
+    std::size_t size = 0;
+    std::uint64_t oldest_id = 0;
+};
 
-CodeforcesSubmission parse_submission_status(std::string_view response,
-                                             const std::string& contest_id,
-                                             const std::string& problem_index,
-                                             const std::string& handle,
-                                             const std::string& submission_id) {
-    const std::uint64_t contest = decimal_id(contest_id, "contest ID");
-    const std::uint64_t expected_id = decimal_id(submission_id, "submission ID");
+SubmissionStatusPage parse_submission_status_page(std::string_view response,
+                                                  std::uint64_t contest,
+                                                  std::string_view problem_index,
+                                                  std::string_view handle,
+                                                  std::uint64_t expected_id) {
     const Json document = parse_json(response);
     const Json& result = api_result(document);
     if (!result.is_array()) {
         throw std::runtime_error("Codeforces API returned invalid submission data");
     }
 
+    SubmissionStatusPage page;
+    page.size = result.array().size();
     const Json* match = nullptr;
     for (const Json& submission : result.array()) {
         if (!submission.is_object()) {
             throw std::runtime_error("Codeforces API returned an invalid submission");
         }
-        if (required_integer(submission, "id") == expected_id) {
+        const std::uint64_t id = required_integer(submission, "id");
+        page.oldest_id = page.oldest_id == 0 ? id : std::min(page.oldest_id, id);
+        if (id == expected_id) {
             if (match != nullptr) {
                 throw std::runtime_error("Codeforces API returned duplicate submission IDs");
             }
@@ -268,18 +252,18 @@ CodeforcesSubmission parse_submission_status(std::string_view response,
         }
     }
     if (match == nullptr) {
-        return {};
+        return page;
     }
     const std::string participant_type =
         validate_submission(*match, contest, problem_index, handle);
 
-    CodeforcesSubmission status;
+    CodeforcesSubmission& status = page.status;
     status.found = true;
-    status.handle = handle;
+    status.handle = std::string(handle);
     status.participant_type = participant_type;
     const Json* verdict = match->find("verdict");
     if (verdict == nullptr || verdict->is_null()) {
-        return status;
+        return page;
     }
     if (!verdict->is_string()) {
         throw std::runtime_error("Codeforces API returned an invalid verdict");
@@ -291,7 +275,7 @@ CodeforcesSubmission parse_submission_status(std::string_view response,
             status.verdict != "TESTING") {
             throw std::runtime_error("Codeforces API returned an invalid verdict");
         }
-        return status;
+        return page;
     }
 
     const Json* testset = match->find("testset");
@@ -303,7 +287,7 @@ CodeforcesSubmission parse_submission_status(std::string_view response,
     status.passed_test_count = required_integer(*match, "passedTestCount");
     status.time_consumed_millis = required_integer(*match, "timeConsumedMillis");
     status.memory_consumed_bytes = required_integer(*match, "memoryConsumedBytes");
-    return status;
+    return page;
 }
 
 CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
@@ -314,6 +298,7 @@ CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
     constexpr int page_size = 50;
     constexpr int page_limit = 20;
     const std::uint64_t expected_id = decimal_id(submission_id, "submission ID");
+    const std::uint64_t contest = decimal_id(contest_id, "contest ID");
     for (int page = 0; page < page_limit; ++page) {
         if (page != 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2100));
@@ -323,15 +308,16 @@ CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
                                 "&from=" + std::to_string(page * page_size + 1) +
                                 "&count=" + std::to_string(page_size);
         const std::string response = api_get(url, timeout_seconds);
-        CodeforcesSubmission status = parse_submission_status(
-            response, contest_id, problem_index, handle, submission_id);
-        const SubmissionPage page_data = submission_page(response);
-        if (status.found || page_data.size < page_size || page_data.oldest_id < expected_id) {
-            return status;
+        SubmissionStatusPage status = parse_submission_status_page(
+            response, contest, problem_index, handle, expected_id);
+        if (status.status.found || status.size < page_size || status.oldest_id < expected_id) {
+            return status.status;
         }
     }
     return {};
 }
+
+} // namespace
 
 CodeforcesSubmission poll_submission_status(
     const std::string& contest_id, const std::string& problem_index,

@@ -3,7 +3,6 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
-#include <string_view>
 
 namespace cfx {
 
@@ -22,16 +21,6 @@ struct CodeforcesSubmission {
     std::uint64_t memory_consumed_bytes = 0;
 };
 
-CodeforcesSubmission parse_submission_status(std::string_view response,
-                                             const std::string& contest_id,
-                                             const std::string& problem_index,
-                                             const std::string& handle,
-                                             const std::string& submission_id);
-CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
-                                             const std::string& problem_index,
-                                             const std::string& handle,
-                                             const std::string& submission_id,
-                                             int timeout_seconds = 20);
 CodeforcesSubmission poll_submission_status(
     const std::string& contest_id, const std::string& problem_index,
     const std::string& handle, const std::string& submission_id,
