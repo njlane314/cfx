@@ -7,7 +7,8 @@ usage() {
 }
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-template=$script_dir/cfx.rb.in
+formula=$script_dir/cfx.rb
+anchor='  homepage "https://github.com/njlane314/cfx"'
 
 if [[ $# -eq 1 && $1 == --head ]]; then
     release=
@@ -20,10 +21,12 @@ else
     usage
 fi
 
+anchor_count=$(grep -Fxc "$anchor" "$formula" || true)
+[[ $anchor_count == 1 ]] || { echo "formula render: expected one homepage anchor, found $anchor_count" >&2; exit 1; }
+
 while IFS= read -r line; do
-    if [[ $line == @RELEASE@ ]]; then
+    printf '%s\n' "$line"
+    if [[ $line == "$anchor" ]]; then
         [[ -z $release ]] || printf '%s\n' "$release"
-    else
-        printf '%s\n' "$line"
     fi
-done <"$template"
+done <"$formula"
