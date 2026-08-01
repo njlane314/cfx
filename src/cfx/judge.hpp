@@ -21,7 +21,6 @@ struct ProblemLimits {
 
 struct TestOptions {
     bool checked = false;
-    bool rebuild = false;
     std::optional<std::chrono::milliseconds> timeout;
     bool concise = false;
     std::optional<std::uint64_t> memory_limit_bytes;

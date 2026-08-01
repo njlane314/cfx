@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <unistd.h>
+#include <vector>
 
 namespace cfx {
 namespace {
@@ -28,18 +29,6 @@ std::vector<std::string> compiler_command() {
         throw std::runtime_error("CXX names no compiler");
     }
     return command;
-}
-
-std::string sanitize(std::string value) {
-    for (char& character : value) {
-        const bool safe =
-            (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-            (character >= '0' && character <= '9') || character == '-' || character == '_';
-        if (!safe) {
-            character = '_';
-        }
-    }
-    return value.empty() ? "source" : value;
 }
 
 std::vector<std::string> compile_flags(const std::string& standard, bool checked, bool local) {
@@ -78,8 +67,7 @@ std::vector<std::string> compile_flags(const std::string& standard, bool checked
 }
 
 std::string join_fingerprint(const std::string& source, const std::vector<std::string>& compiler,
-                             const std::string& standard, const std::vector<std::string>& flags,
-                             bool checked) {
+                             const std::vector<std::string>& flags) {
     std::string fingerprint = source;
     const auto append = [&](const std::string& value) {
         fingerprint.push_back('\0');
@@ -93,8 +81,6 @@ std::string join_fingerprint(const std::string& source, const std::vector<std::s
     const CaptureResult version = capture_process(version_command);
     append(std::to_string(version.status));
     append(version.output);
-    append(standard);
-    append(checked ? "checked" : "unchecked");
     for (const std::string& flag : flags) {
         append(flag);
     }
@@ -111,39 +97,28 @@ std::string Builder::bundled_source(const std::filesystem::path& source) const {
 }
 
 BuildResult Builder::build_problem(const Problem& problem, const BuildOptions& options) const {
-    return build_source(problem.solution_path(), problem.id(), options);
-}
-
-BuildResult Builder::build_source(const std::filesystem::path& source,
-                                  const std::string& cache_name,
-                                  const BuildOptions& options) const {
-    const std::filesystem::path canonical = std::filesystem::weakly_canonical(source);
+    const std::filesystem::path canonical =
+        std::filesystem::weakly_canonical(problem.solution_path());
     if (!std::filesystem::is_regular_file(canonical)) {
-        throw std::runtime_error("source not found: " + source.string());
+        throw std::runtime_error("source not found: " + problem.solution_path().string());
     }
 
     const std::string prepared = bundled_source(canonical);
     const std::vector<std::string> compiler = compiler_command();
     const std::string standard = configured_standard();
     const std::vector<std::string> flags = compile_flags(standard, options.checked, options.local);
-    const std::string digest =
-        content_digest(join_fingerprint(prepared, compiler, standard, flags, options.checked));
+    const std::string digest = content_digest(join_fingerprint(prepared, compiler, flags));
 
-    const std::filesystem::path cache =
-        cfx::state_root(root_) / "build" / sanitize(cache_name);
-    const std::filesystem::path sources = cache / "sources";
-    const std::filesystem::path binaries = cache / "bin";
-    std::filesystem::create_directories(sources);
-    std::filesystem::create_directories(binaries);
+    const std::filesystem::path cache = cfx::state_root(root_) / "build" / problem.id();
+    std::filesystem::create_directories(cache);
 
-    const std::filesystem::path bundled = sources / (digest + ".cpp");
-    const std::filesystem::path binary = binaries / digest;
+    const std::filesystem::path bundled = cache / (digest + ".cpp");
+    const std::filesystem::path binary = cache / digest;
     write_atomic(bundled, prepared);
 
-    bool compiled = false;
-    if (options.rebuild || !std::filesystem::is_regular_file(binary)) {
+    if (!std::filesystem::is_regular_file(binary)) {
         const std::filesystem::path temporary =
-            binaries / ("." + digest + "." + std::to_string(::getpid()) + ".tmp");
+            cache / ("." + digest + "." + std::to_string(::getpid()) + ".tmp");
         std::vector<std::string> command = compiler;
         command.insert(command.end(), flags.begin(), flags.end());
         command.push_back(bundled.string());
@@ -163,17 +138,9 @@ BuildResult Builder::build_source(const std::filesystem::path& source,
             std::filesystem::remove(temporary, ignored);
             throw std::runtime_error("cannot install cached binary: " + error.message());
         }
-        compiled = true;
     }
 
-    return BuildResult{
-        binary,
-        bundled,
-        digest,
-        compiled,
-        std::filesystem::file_size(canonical),
-        std::filesystem::file_size(binary),
-    };
+    return BuildResult{binary, bundled};
 }
 
 std::string format_bytes(std::uintmax_t bytes) {

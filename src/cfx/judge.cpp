@@ -254,14 +254,10 @@ TestSummary Judge::test(const Problem& problem, const TestOptions& options) cons
         limits.memory_from_metadata = false;
     }
 
-    summary.build = builder_.build_problem(
-        problem, BuildOptions{options.checked, options.rebuild, !options.submission_profile});
+    summary.build =
+        builder_.build_problem(problem, BuildOptions{options.checked, !options.submission_profile});
     if (!options.concise) {
-        std::cout << (summary.build.compiled ? "built: " : "cached: ") << problem.id() << " ["
-                  << summary.build.digest.substr(0, 12) << "]\n"
-                  << "size: source " << format_bytes(summary.build.source_size) << ", binary "
-                  << format_bytes(summary.build.binary_size) << '\n'
-                  << "limits: time " << format_duration(limits.time_limit);
+        std::cout << "limits: time " << format_duration(limits.time_limit);
         if (!limits.time_from_metadata && !options.timeout) {
             std::cout << " (fallback)";
         }

@@ -90,12 +90,6 @@ if (
 fi
 rm "$problem_dir/cases/incomplete.in"
 
-cached_output=$(
-    cd "$problem_dir"
-    "$repo_root/cfx" --root "$sandbox" test --checked
-)
-grep -q 'cached:' <<<"$cached_output"
-
 test ! -e "$sandbox/.build"
 test ! -e "$sandbox/.cfx"
 

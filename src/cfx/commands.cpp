@@ -50,9 +50,9 @@ const std::map<std::string, std::string, std::less<>> kCommandHelp{
 Bundle, compile, and judge samples followed by handwritten cases. The problem
 is inferred when the command runs inside its archive directory. Fetched
 Codeforces time and memory limits are used by default. Options: --checked,
---rebuild, --time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
+--time-limit SECONDS, --memory-limit MIB, and --output-limit MIB.
 )"},
-    {"submit", R"(usage: cfx submit [--manual] [--rebuild] [PROBLEM]
+    {"submit", R"(usage: cfx submit [--manual] [PROBLEM]
 
 Run saved tests, create and checked-compile the final bundle, then submit it
 through the installed browser connector and the browser's authenticated
@@ -214,8 +214,6 @@ int command_test(Arguments arguments, const fs::path& root) {
         }
         if (argument == "--checked") {
             options.checked = true;
-        } else if (argument == "--rebuild") {
-            options.rebuild = true;
         } else if (argument == "--time-limit") {
             options.timeout = duration(arguments.take(), "--time-limit");
         } else if (argument == "--memory-limit") {
@@ -234,7 +232,6 @@ int command_test(Arguments arguments, const fs::path& root) {
 }
 
 int command_submit(Arguments arguments, const fs::path& root) {
-    cfx::SubmissionOptions options;
     bool manual = false;
     std::vector<std::string> positional;
     while (!arguments.empty()) {
@@ -243,9 +240,7 @@ int command_submit(Arguments arguments, const fs::path& root) {
             show_command_help("submit");
             return 0;
         }
-        if (argument == "--rebuild") {
-            options.rebuild = true;
-        } else if (argument == "--manual") {
+        if (argument == "--manual") {
             manual = true;
         } else if (argument.starts_with("-")) {
             throw std::runtime_error("submit: unknown option " + argument);
@@ -255,7 +250,7 @@ int command_submit(Arguments arguments, const fs::path& root) {
     }
 
     const Problem problem = resolve_submission_problem(positional, root);
-    const cfx::SubmissionArtifact artifact = cfx::prepare_submission(root, problem, options);
+    const cfx::SubmissionArtifact artifact = cfx::prepare_submission(root, problem);
     std::cout << "Checked build passed\n";
 
     const auto prepare_manual = [&] {

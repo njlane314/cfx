@@ -376,33 +376,33 @@ void test_process_and_normalization(const fs::path& root, const fs::path& execut
 }
 
 void test_build_cache(const fs::path& root) {
+    const cfx::Problem problem("90", "A", root);
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 7\n");
     write(root / "include" / "unused.hpp", "#pragma once\n#define UNUSED 1\n");
-    write(root / "solution.cpp", "#include \"value.hpp\"\n"
-                                 "int main() { return VALUE == 7 ? 0 : 1; }\n");
+    write(problem.solution_path(), "#include \"value.hpp\"\n"
+                                   "int main() { return VALUE == 7 ? 0 : 1; }\n");
     const cfx::Builder builder(root);
-    const cfx::BuildResult first = builder.build_source(root / "solution.cpp", "cache-test");
-    check(first.compiled, "first cache build compiles");
-    const cfx::BuildResult second = builder.build_source(root / "solution.cpp", "cache-test");
-    check(!second.compiled, "unchanged build uses cache");
-    check(first.digest == second.digest, "unchanged digest is stable");
+    const cfx::BuildResult first = builder.build_problem(problem);
+    check(fs::is_regular_file(first.binary), "first cache build compiles");
+    const auto modified = fs::last_write_time(first.binary);
+    const cfx::BuildResult second = builder.build_problem(problem);
+    check(first.binary == second.binary && fs::last_write_time(second.binary) == modified,
+          "unchanged build uses cache");
 
     write(root / "include" / "unused.hpp", "#pragma once\n#define UNUSED 2\n");
-    const cfx::BuildResult unused = builder.build_source(root / "solution.cpp", "cache-test");
-    check(!unused.compiled && unused.digest == first.digest,
-          "unused-header edit preserves the exact cache key");
+    const cfx::BuildResult unused = builder.build_problem(problem);
+    check(unused.binary == first.binary, "unused-header edit preserves the exact cache key");
 
     write(root / "include" / "value.hpp", "#pragma once\n#define VALUE 8\n");
-    const cfx::BuildResult third = builder.build_source(root / "solution.cpp", "cache-test");
-    check(third.compiled, "included-header edit rebuilds");
-    check(third.digest != first.digest, "included-header edit changes digest");
+    const cfx::BuildResult third = builder.build_problem(problem);
+    check(third.binary != first.binary, "included-header edit changes the cache key");
 
-    write(root / "submission.cpp",
+    write(problem.solution_path(),
           "#ifdef LOCAL\n#error submission build must not define LOCAL\n#endif\n"
           "int main() {}\n");
-    const cfx::BuildResult submission = builder.build_source(
-        root / "submission.cpp", "submission-mode", cfx::BuildOptions{true, false, false});
-    check(submission.compiled, "submission mode compiles without LOCAL");
+    const cfx::BuildResult submission =
+        builder.build_problem(problem, cfx::BuildOptions{true, false});
+    check(fs::is_regular_file(submission.binary), "submission mode compiles without LOCAL");
 
     const char* old_cfx_standard = std::getenv("CFX_STD");
     const char* old_standard = std::getenv("STD");

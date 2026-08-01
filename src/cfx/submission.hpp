@@ -17,12 +17,7 @@ struct SubmissionArtifact {
     std::string page_url;
 };
 
-struct SubmissionOptions {
-    bool rebuild = false;
-};
-
-SubmissionArtifact prepare_submission(const std::filesystem::path& root, const Problem& problem,
-                                      const SubmissionOptions& options = {});
+SubmissionArtifact prepare_submission(const std::filesystem::path& root, const Problem& problem);
 
 void copy_submission_to_clipboard(const SubmissionArtifact& artifact);
 
