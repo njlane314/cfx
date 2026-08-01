@@ -55,7 +55,7 @@ CFX_STATE_ROOT="$build_dir/core-state" \
 
 tool_sources=()
 for source in "$repo_root"/src/cfx/*.cpp; do
-    [[ $(basename "$source") == main.cpp ]] || tool_sources+=("$source")
+    [[ $(basename "$source") == commands.cpp ]] || tool_sources+=("$source")
 done
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
