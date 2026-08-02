@@ -48,11 +48,7 @@ common_flags=(
 "${compiler_command[@]}" \
     "${common_flags[@]}" \
     "$script_dir/core_tests.cpp" \
-    "$repo_root/src/cfx/problem.cpp" \
-    "$repo_root/src/cfx/runtime.cpp" \
-    "$repo_root/src/cfx/workspace.cpp" \
-    "$repo_root/src/cfx/bundle.cpp" \
-    "$repo_root/src/cfx/file.cpp" \
+    "$repo_root/src/cfx/archive.cpp" \
     -o "$build_dir/core-tests"
 CFX_STATE_ROOT="$build_dir/core-state" \
     "$build_dir/core-tests"

@@ -15,9 +15,7 @@ const entries = childProcess.execFileSync("unzip", ["-Z1", archive], {encoding: 
 assert.deepEqual(entries, [
     "background.js",
     "connector.js",
-    "manifest.json",
-    "samples.js",
-    "submission.js"
+    "manifest.json"
 ]);
 
 const manifest = JSON.parse(childProcess.execFileSync(

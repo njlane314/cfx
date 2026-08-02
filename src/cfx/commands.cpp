@@ -1,11 +1,4 @@
-#include "browser.hpp"
-#include "codeforces.hpp"
-#include "companion.hpp"
-#include "judge.hpp"
-#include "problem.hpp"
-#include "process.hpp"
-#include "submission.hpp"
-#include "workspace.hpp"
+#include "cfx.hpp"
 
 #include <chrono>
 #include <cstddef>

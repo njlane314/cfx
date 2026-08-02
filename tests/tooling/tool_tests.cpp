@@ -1,13 +1,4 @@
-#include "cfx/browser.hpp"
-#include "cfx/browser_http.hpp"
-#include "cfx/codeforces.hpp"
-#include "cfx/companion.hpp"
-#include "cfx/compiler.hpp"
-#include "cfx/hash.hpp"
-#include "cfx/json.hpp"
-#include "cfx/judge.hpp"
-#include "cfx/process.hpp"
-#include "cfx/submission.hpp"
+#include "cfx/cfx.hpp"
 
 #include <chrono>
 #include <cerrno>

@@ -1,8 +1,4 @@
-#include "cfx/bundle.hpp"
-#include "cfx/file.hpp"
-#include "cfx/problem.hpp"
-#include "cfx/runtime.hpp"
-#include "cfx/workspace.hpp"
+#include "cfx/cfx.hpp"
 
 #include <chrono>
 #include <cstdlib>

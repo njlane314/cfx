@@ -3,9 +3,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const samples = require(path.resolve(__dirname, "../../src/browser/samples.js"));
-const submission = require(path.resolve(__dirname, "../../src/browser/submission.js"));
-const {createConnector, nextProblemUrl, parseRequest} = require(
+const {createConnector, nextProblemUrl, parseRequest, samples, submission} = require(
   path.resolve(__dirname, "../../src/browser/connector.js")
 );
 

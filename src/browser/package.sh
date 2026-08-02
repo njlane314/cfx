@@ -75,8 +75,6 @@ trap 'rm -rf "$stage"' EXIT
 mkdir -p "$output_dir"
 cp "$manifest" \
     "$script_dir/background.js" \
-    "$script_dir/samples.js" \
-    "$script_dir/submission.js" \
     "$script_dir/connector.js" \
     "$stage/"
 

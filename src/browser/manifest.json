@@ -32,11 +32,7 @@
         "https://codeforces.com/submissions/*",
         "https://codeforces.com/enter*"
       ],
-      "js": [
-        "samples.js",
-        "submission.js",
-        "connector.js"
-      ],
+      "js": ["connector.js"],
       "run_at": "document_start"
     }
   ]

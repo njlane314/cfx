@@ -79,7 +79,7 @@ async function main() {
     fs.readFileSync(path.resolve(__dirname, "../../src/browser/manifest.json"), "utf8")
   );
   assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
-  assert.deepEqual(manifest.content_scripts[0].js, ["samples.js", "submission.js", "connector.js"]);
+  assert.deepEqual(manifest.content_scripts[0].js, ["connector.js"]);
   const contentScriptMatches = manifest.content_scripts.flatMap(script => script.matches || []);
   for (const match of [
     "https://m3.codeforces.com/contest/*/problem/*",
