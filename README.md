@@ -153,7 +153,8 @@ template stays dependency-free.
 
 ## CHECKS
 
-Clone with `--recurse-submodules` to include the test-only `tst` dependency.
+Clone with `--recurse-submodules` to include the test-only
+[`tst`](https://github.com/njlane314/tst) dependency.
 
 ```sh
 make verify
