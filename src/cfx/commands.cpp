@@ -1,5 +1,6 @@
 #include "cfx.hpp"
 
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cmath>
@@ -65,11 +66,13 @@ fs::path select_root(std::vector<std::string>& values) {
 
 const char* kHelp = R"(usage:
   cfx PROBLEM
+  cfx pick --rating R [OPTIONS]
   cfx submit
 
 A small C++20 Codeforces workbench.
 
 daily:
+  cfx pick --rating 1300  suggest an unsolved problem
   cfx 71A             fetch samples and open solution.cpp
   cfx submit          test, checked-build, and submit through the browser
 
@@ -82,6 +85,12 @@ codeforces/<contest>/<index>/.
 )";
 
 const std::map<std::string, std::string, std::less<>> kCommandHelp{
+    {"pick", R"(usage: cfx pick --rating R [options]
+
+Suggest an unsolved problem near rating R without fetching its statement.
+Set CFX_HANDLE or pass --handle HANDLE. Options: --count N, repeatable
+--tag TAG filters, --show-tags, and --quiet (canonical IDs only).
+)"},
     {"test", R"(usage: cfx test [options] [PROBLEM]
 
 Bundle, compile, and judge samples followed by handwritten cases. The problem
@@ -128,6 +137,18 @@ std::uint64_t mebibytes(const std::string& value, const std::string& name) {
         throw std::runtime_error(name + " is too small");
     }
     return rounded;
+}
+
+std::size_t bounded_integer(const std::string& value, const std::string& name,
+                            std::size_t minimum, std::size_t maximum) {
+    std::size_t result = 0;
+    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
+    if (error != std::errc() || end != value.data() + value.size() || result < minimum ||
+        result > maximum) {
+        throw std::runtime_error(name + " must be an integer from " + std::to_string(minimum) +
+                                 " to " + std::to_string(maximum));
+    }
+    return result;
 }
 
 Problem resolve_problem(const std::vector<std::string>& values, const fs::path& root) {
@@ -268,6 +289,67 @@ int command_test(Arguments arguments, const fs::path& root) {
     return result.success() ? 0 : 1;
 }
 
+int command_pick(Arguments arguments, const fs::path& root) {
+    int rating = 0;
+    std::size_t count = 1;
+    std::vector<std::string> tags;
+    const char* configured = std::getenv("CFX_HANDLE");
+    std::string handle = configured == nullptr ? "" : configured;
+    bool quiet = false;
+    bool show_tags = false;
+    while (!arguments.empty()) {
+        const std::string argument = arguments.take();
+        if (argument == "--help" || argument == "-h") {
+            show_command_help("pick");
+            return 0;
+        }
+        if (argument == "--rating") {
+            rating = static_cast<int>(bounded_integer(arguments.take(), "--rating", 800, 3500));
+        } else if (argument == "--count") {
+            count = bounded_integer(arguments.take(), "--count", 1, 100);
+        } else if (argument == "--tag") {
+            tags.push_back(arguments.take());
+        } else if (argument == "--handle") {
+            handle = arguments.take();
+        } else if (argument == "--quiet" || argument == "-q") {
+            quiet = true;
+        } else if (argument == "--show-tags") {
+            show_tags = true;
+        } else {
+            throw std::runtime_error("pick: unknown option " + argument);
+        }
+    }
+    if (rating == 0) throw std::runtime_error("pick: --rating is required");
+    if (handle.empty()) throw std::runtime_error("pick: set CFX_HANDLE or pass --handle");
+
+    const auto [suggestions, radius] = cfx::pick_problems(root, rating, count, handle, tags);
+    if (radius > 100 && !quiet) {
+        std::cout << "No eligible problems within ±" << radius - 100 << "; widened to ±" << radius
+                  << ".\n";
+    }
+    for (const cfx::ProblemSuggestion& suggestion : suggestions) {
+        if (quiet) {
+            std::cout << suggestion.problem.id() << '\n';
+            continue;
+        }
+        std::cout << suggestion.problem.id() << " — " << suggestion.name << " ["
+                  << suggestion.rating << ']';
+        if (show_tags) {
+            std::cout << " (";
+            for (std::size_t index = 0; index < suggestion.tags.size(); ++index) {
+                if (index != 0) std::cout << ", ";
+                std::cout << suggestion.tags[index];
+            }
+            std::cout << ')';
+        }
+        std::cout << '\n' << cfx::problem_url(suggestion.problem) << '\n';
+    }
+    if (suggestions.size() == 1 && !quiet) {
+        std::cout << "Start with: cfx " << suggestions.front().problem.id() << '\n';
+    }
+    return 0;
+}
+
 int command_submit(Arguments arguments, const fs::path& root) {
     bool manual = false;
     std::vector<std::string> positional;
@@ -360,6 +442,7 @@ int command_submit(Arguments arguments, const fs::path& root) {
 }
 
 int dispatch(std::string command, Arguments arguments, const fs::path& root) {
+    if (command == "pick") return command_pick(std::move(arguments), root);
     if (command == "test") return command_test(std::move(arguments), root);
     if (command == "submit") return command_submit(std::move(arguments), root);
 

@@ -246,11 +246,21 @@ struct CodeforcesSubmission {
     std::uint64_t memory_consumed_bytes = 0;
 };
 
+struct ProblemSuggestion {
+    Problem problem;
+    std::string name;
+    int rating;
+    std::vector<std::string> tags;
+};
+
 CodeforcesSubmission poll_submission_status(
     const std::string& contest_id, const std::string& problem_index,
     const std::string& handle, const std::string& submission_id,
     const std::chrono::steady_clock::time_point& deadline,
     std::chrono::milliseconds interval = std::chrono::milliseconds(2100));
+std::pair<std::vector<ProblemSuggestion>, int>
+pick_problems(const std::filesystem::path& root, int rating, std::size_t count,
+              const std::string& handle, const std::vector<std::string>& tags);
 std::string problem_url(const Problem& problem);
 std::string submission_url(const Problem& problem);
 

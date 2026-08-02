@@ -1,6 +1,6 @@
 .\" Copyright (c) 2026 njlane314
 .\" SPDX-License-Identifier: MIT
-.TH CFX 1 "August 1, 2026" "cfx" "General Commands Manual"
+.TH CFX 1 "August 2, 2026" "cfx" "General Commands Manual"
 .SH NAME
 cfx \- small, auditable Codeforces workflow
 .SH SYNOPSIS
@@ -8,6 +8,13 @@ cfx \- small, auditable Codeforces workflow
 .RB [ \-\-root
 .IR directory ]
 .I problem
+.br
+.B cfx
+.RB [ \-\-root
+.IR directory ]
+.B pick
+.BI \-\-rating " rating"
+.RI [ options ]
 .br
 .B cfx
 .RB [ \-\-root
@@ -50,6 +57,12 @@ open
 and remember it as the current problem.
 Official contest mirrors are tried when the primary statement is unavailable.
 .TP
+.B pick
+Suggest an unsolved problem near the requested rating, excluding problems
+already present in the archive. Search within 100 rating points, then widen to
+200 and 300 only when no problem matches. This command does not fetch the
+selected statement, create its archive directory, or open an editor.
+.TP
 .BR test " [" problem "]"
 Bundle and compile the solution, then run fetched samples followed by
 handwritten cases.
@@ -72,6 +85,28 @@ No password or session cookie is read or stored.
 .TP
 .BR help " [" command "]"
 Display general help or help for one command.
+.SH PICK OPTIONS
+.TP
+.BI "\-\-rating " rating
+Required target problem rating, from 800 to 3500.
+.TP
+.BI "\-\-count " number
+Return up to
+.I number
+distinct choices; the default is one.
+.TP
+.BI "\-\-handle " handle
+Use this Codeforces handle to exclude accepted problems, overriding
+.BR CFX_HANDLE .
+.TP
+.BI "\-\-tag " tag
+Require a problem tag. Repeat to require several tags.
+.TP
+.B \-\-show-tags
+Display problem tags, which are hidden by default to avoid spoilers.
+.TP
+.BR \-\-quiet ", " \-q
+Print only canonical problem IDs, one per line.
 .SH TEST OPTIONS
 .TP
 .B \-\-checked
@@ -126,8 +161,8 @@ Optional archive-owned
 diagnostics submodule.
 .TP
 .I $XDG_STATE_HOME/cfx/workspaces/
-Fetched samples, builds, run output, current-problem state, and prepared
-submissions.
+Fetched samples, the cached problem catalogue, builds, run output,
+current-problem state, and prepared submissions.
 When
 .B XDG_STATE_HOME
 is unset, cfx uses
@@ -195,6 +230,10 @@ Additional compiler flags.
 .B CFX_ROOT
 Explicit archive root.
 .TP
+.B CFX_HANDLE
+Codeforces handle used by
+.BR pick .
+.TP
 .B CFX_STATE_ROOT
 Explicit runtime-state root.
 .TP
@@ -238,6 +277,7 @@ manual completion.
 Fetch and solve a problem:
 .PP
 .nf
+cfx pick --rating 1300
 cfx 71A
 cfx submit
 .fi

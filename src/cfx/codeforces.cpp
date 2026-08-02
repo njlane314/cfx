@@ -5,9 +5,11 @@
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
+#include <random>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
+#include <unordered_set>
 #include <unistd.h>
 #include <vector>
 
@@ -45,6 +47,11 @@ std::string query_value(std::string_view value) {
 }
 
 std::string api_get(const std::string& url, int timeout_seconds) {
+    if (std::getenv("CFX_API_BASE") == nullptr) {
+        static auto next_request = std::chrono::steady_clock::time_point{};
+        std::this_thread::sleep_until(next_request);
+        next_request = std::chrono::steady_clock::now() + std::chrono::milliseconds(2100);
+    }
     const CaptureResult response = capture_process({
         "curl",
         "--fail-with-body",
@@ -110,6 +117,28 @@ std::uint64_t decimal_id(std::string_view value, std::string_view name) {
         result > maximum_safe_integer) {
         throw std::invalid_argument("invalid " + std::string(name));
     }
+    return result;
+}
+
+Json parse_api_response(std::string_view response) {
+    const Json document = parse_json(response);
+    return api_result(document);
+}
+
+Json problem_catalogue(const std::filesystem::path& root) {
+    const std::filesystem::path cache = state_root(root) / "problemset.json";
+    std::error_code error;
+    const auto modified = std::filesystem::last_write_time(cache, error);
+    if (!error && std::filesystem::file_time_type::clock::now() - modified <
+                      std::chrono::hours(24)) {
+        return parse_api_response(read_text(cache));
+    }
+
+    const std::string response = api_get(api_base() + "/problemset.problems", 30);
+    Json result = parse_api_response(response);
+    std::filesystem::create_directories(cache.parent_path());
+    write_atomic(cache, response);
+    std::filesystem::last_write_time(cache, std::filesystem::file_time_type::clock::now());
     return result;
 }
 
@@ -299,9 +328,6 @@ CodeforcesSubmission fetch_submission_status(const std::string& contest_id,
     const std::uint64_t expected_id = decimal_id(submission_id, "submission ID");
     const std::uint64_t contest = decimal_id(contest_id, "contest ID");
     for (int page = 0; page < page_limit; ++page) {
-        if (page != 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2100));
-        }
         const std::string url = api_base() + "/contest.status?contestId=" +
                                 query_value(contest_id) + "&handle=" + query_value(handle) +
                                 "&from=" + std::to_string(page * page_size + 1) +
@@ -350,6 +376,77 @@ CodeforcesSubmission poll_submission_status(
         std::this_thread::sleep_until(next);
     }
     throw std::runtime_error(last_status);
+}
+
+std::pair<std::vector<ProblemSuggestion>, int>
+pick_problems(const std::filesystem::path& root, int rating, std::size_t count,
+              const std::string& handle, const std::vector<std::string>& tags) {
+    const Json catalogue = problem_catalogue(root);
+    const Json submissions = parse_api_response(
+        api_get(api_base() + "/user.status?handle=" + query_value(handle), 30));
+    if (!submissions.is_array()) {
+        throw std::runtime_error("Codeforces API returned invalid submission data");
+    }
+
+    std::unordered_set<std::string> solved;
+    for (const Json& submission : submissions.array()) {
+        const Json* verdict = submission.find("verdict");
+        const Json* problem = submission.find("problem");
+        if (verdict == nullptr || !verdict->is_string() || verdict->string() != "OK" ||
+            problem == nullptr) continue;
+        const Json* contest = problem->find("contestId");
+        if (contest != nullptr) {
+            solved.insert(std::to_string(nonnegative_integer(*contest, "contest ID")) +
+                          problem->at("index").string());
+        }
+    }
+
+    std::vector<std::string> wanted = tags;
+    for (std::string& tag : wanted) tag = lower(std::move(tag));
+
+    std::vector<ProblemSuggestion> candidates;
+    for (const Json& value : catalogue.at("problems").array()) {
+        const Json* contest = value.find("contestId");
+        const Json* problem_rating = value.find("rating");
+        if (contest == nullptr || problem_rating == nullptr ||
+            value.at("type").string() != "PROGRAMMING") {
+            continue;
+        }
+        const int difficulty = static_cast<int>(nonnegative_integer(*problem_rating, "rating"));
+        if (std::abs(difficulty - rating) > 300) continue;
+        const std::string& index = value.at("index").string();
+        if (index.empty() || index.front() < 'A' || index.front() > 'Z' ||
+            index.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != std::string::npos) continue;
+
+        std::vector<std::string> listed_tags;
+        for (const Json& tag : value.at("tags").array()) listed_tags.push_back(tag.string());
+        if (!std::all_of(wanted.begin(), wanted.end(), [&](const std::string& tag) {
+                return std::find(listed_tags.begin(), listed_tags.end(), tag) != listed_tags.end();
+            })) continue;
+
+        Problem problem(std::to_string(nonnegative_integer(*contest, "contest ID")),
+                        index, root);
+        if (solved.contains(problem.id()) || std::filesystem::exists(problem.directory())) continue;
+        candidates.push_back(
+            {std::move(problem), value.at("name").string(), difficulty, std::move(listed_tags)});
+    }
+
+    if (candidates.empty()) {
+        throw std::runtime_error("no unsolved problems match within 300 rating points");
+    }
+    int radius = 100;
+    while (radius < 300 && std::none_of(candidates.begin(), candidates.end(), [&](const auto& p) {
+               return std::abs(p.rating - rating) <= radius;
+           })) {
+        radius += 100;
+    }
+    std::erase_if(candidates,
+                  [&](const auto& problem) { return std::abs(problem.rating - rating) > radius; });
+    std::shuffle(candidates.begin(), candidates.end(), std::mt19937{std::random_device{}()});
+    if (candidates.size() > count) {
+        candidates.erase(candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end());
+    }
+    return {std::move(candidates), radius};
 }
 
 std::string problem_url(const Problem& problem) {
