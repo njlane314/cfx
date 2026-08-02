@@ -1,0 +1,3 @@
+[submodule "tests/vendor/tst"]
+	path = tests/vendor/tst
+	url = https://github.com/njlane314/tst

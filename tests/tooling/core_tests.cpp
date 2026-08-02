@@ -1,10 +1,10 @@
 #include "cfx/cfx.hpp"
+#include <tst.hpp>
 
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -14,6 +14,7 @@
 namespace {
 
 namespace fs = std::filesystem;
+using tst::check;
 
 class TemporaryDirectory {
   public:
@@ -74,17 +75,11 @@ std::string read(const fs::path& path) {
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
-void require(bool condition, const std::string& message) {
-    if (!condition) {
-        throw std::runtime_error(message);
-    }
-}
-
 template <class Function> void require_bundle_error(Function&& function, std::string_view text) {
     try {
         function();
     } catch (const cfx::BundleError& error) {
-        require(std::string(error.what()).find(text) != std::string::npos,
+        check(std::string(error.what()).find(text) != std::string::npos,
                 "bundle error did not mention " + std::string(text));
         return;
     }
@@ -95,7 +90,7 @@ template <class Function> void require_workspace_error(Function&& function, std:
     try {
         function();
     } catch (const cfx::WorkspaceError& error) {
-        require(std::string(error.what()).find(text) != std::string::npos,
+        check(std::string(error.what()).find(text) != std::string::npos,
                 "workspace error did not mention " + std::string(text));
         return;
     }
@@ -125,7 +120,7 @@ void test_problem_parsing() {
     const auto& root = temporary.path();
 
     const auto canonical = cfx::Problem::parse("71A", root);
-    require(canonical.id() == "71A", "canonical ID");
+    check(canonical.id() == "71A", "canonical ID");
     for (const std::string invalid : {
              "71a",
              "A.71",
@@ -142,30 +137,30 @@ void test_problem_paths_and_inference() {
     const auto& root = workspace.path();
     const auto problem = cfx::Problem::parse("71A", root);
 
-    require(problem.solution_path() == problem.directory() / "solution.cpp",
+    check(problem.solution_path() == problem.directory() / "solution.cpp",
             "canonical solution path");
-    require(problem.metadata_path() == problem.directory() / "problem.json",
+    check(problem.metadata_path() == problem.directory() / "problem.json",
             "canonical metadata path");
-    require(problem.samples_path() == problem.state_directory() / "samples",
+    check(problem.samples_path() == problem.state_directory() / "samples",
             "fetched samples are external state");
-    require(problem.test_directories() ==
+    check(problem.test_directories() ==
                 (std::vector<fs::path>{problem.samples_path(), problem.cases_path()}),
             "canonical test paths");
 
     fs::create_directories(problem.directory());
     const auto inferred = cfx::Problem::infer(problem.solution_path(), root);
-    require(inferred && inferred->id() == "71A", "problem inferred inside root");
+    check(inferred && inferred->id() == "71A", "problem inferred inside root");
 
     const fs::path foreign = outside.path() / "codeforces" / "71" / "A";
     fs::create_directories(foreign);
-    require(!cfx::Problem::infer(foreign, root), "absolute path outside root rejected");
-    require(!cfx::Problem::infer(fs::relative(foreign, root), root),
+    check(!cfx::Problem::infer(foreign, root), "absolute path outside root rejected");
+    check(!cfx::Problem::infer(fs::relative(foreign, root), root),
             "relative path escaping root rejected");
 
     const fs::path link = root / "codeforces" / "72" / "A";
     fs::create_directories(link.parent_path());
     fs::create_directory_symlink(foreign, link);
-    require(!cfx::Problem::infer(link, root), "symlink escaping root rejected");
+    check(!cfx::Problem::infer(link, root), "symlink escaping root rejected");
 }
 
 void test_workspace_creation_is_idempotent() {
@@ -176,14 +171,14 @@ void test_workspace_creation_is_idempotent() {
     const auto problem = cfx::Problem::parse("2227A", root);
     const cfx::Workspace workspace(root);
     const auto first = workspace.create(problem);
-    require(read(first) == "// template\n", "template copied");
-    require(fs::is_directory(problem.samples_path()), "samples created");
-    require(!fs::exists(root / ".cfx"), "runtime state stays outside archive");
-    require(fs::is_directory(problem.cases_path()), "cases created");
+    check(read(first) == "// template\n", "template copied");
+    check(fs::is_directory(problem.samples_path()), "samples created");
+    check(!fs::exists(root / ".cfx"), "runtime state stays outside archive");
+    check(fs::is_directory(problem.cases_path()), "cases created");
 
     write(first, "// keep me\n");
     const auto second = workspace.create(problem);
-    require(read(second) == "// keep me\n", "existing solution not overwritten");
+    check(read(second) == "// keep me\n", "existing solution not overwritten");
 }
 
 void test_template_selection_and_archive_library() {
@@ -197,13 +192,13 @@ void test_template_selection_and_archive_library() {
 
     const auto problem = cfx::Problem::parse("71A", workspace.path());
     const auto created = cfx::Workspace(workspace.path()).create(problem);
-    require(read(created) == "// configured template\n",
+    check(read(created) == "// configured template\n",
             "workspace uses configured solution template");
 
     write(workspace.path() / ".cfx" / "solution.cpp", "// archive template\n");
     const auto local_problem = cfx::Problem::parse("72A", workspace.path());
     const auto local_created = cfx::Workspace(workspace.path()).create(local_problem);
-    require(read(local_created) == "// archive template\n",
+    check(read(local_created) == "// archive template\n",
             "archive template overrides configured template");
 
     write(workspace.path() / "solution.cpp",
@@ -215,12 +210,12 @@ void test_template_selection_and_archive_library() {
     fs::create_directories(workspace.path() / "include");
     fs::create_directory_symlink(library.path(), workspace.path() / "include" / "cp");
     const std::string bundled = cfx::bundle(workspace.path() / "solution.cpp", workspace.path());
-    require(bundled.find("detail = 8") != std::string::npos &&
+    check(bundled.find("detail = 8") != std::string::npos &&
                 bundled.find("header_source = 8") != std::string::npos,
             "bundle expands symlinked library headers transitively");
-    require(bundled.find("#include <cp/value>") == std::string::npos,
+    check(bundled.find("#include <cp/value>") == std::string::npos,
             "bundle removes cp angle include");
-    require(bundled.find("#include \"cp/detail\"") == std::string::npos,
+    check(bundled.find("#include \"cp/detail\"") == std::string::npos,
             "bundle removes transitive quoted include");
 }
 
@@ -237,7 +232,7 @@ void test_peek_submodule_bundling() {
         "inline constexpr int peek_answer = 42;\n"
         "// ===== END peek.hpp =====\n\n"
         "int answer = peek_answer;\n";
-    require(cfx::bundle(root / "solution.cpp", root) == expected,
+    check(cfx::bundle(root / "solution.cpp", root) == expected,
             "bundle expands include/peek/peek.hpp exactly");
 }
 
@@ -248,19 +243,19 @@ void test_file_operations() {
     const std::string binary{"alpha\0beta", 10};
 
     cfx::write_text(path, binary);
-    require(cfx::read_text(path) == binary, "binary-safe text round trip");
+    check(cfx::read_text(path) == binary, "binary-safe text round trip");
 
     const auto timestamp = fs::last_write_time(path);
     cfx::write_atomic(path, binary);
-    require(fs::last_write_time(path) == timestamp, "identical atomic write is a no-op");
+    check(fs::last_write_time(path) == timestamp, "identical atomic write is a no-op");
 
     cfx::write_atomic(path, "replacement");
-    require(cfx::read_text(path) == "replacement", "atomic replacement");
+    check(cfx::read_text(path) == "replacement", "atomic replacement");
 
     const fs::path directory = root / "directory";
     fs::create_directory(directory);
     require_runtime_error([&] { cfx::write_atomic(directory, "not a directory"); });
-    require(!fs::exists(directory.string() + ".tmp." + std::to_string(::getpid())),
+    check(!fs::exists(directory.string() + ".tmp." + std::to_string(::getpid())),
             "failed atomic write removes its temporary");
 }
 
@@ -268,23 +263,23 @@ void test_current_problem_record() {
     TemporaryDirectory temporary;
     const auto& root = temporary.path();
 
-    require(!cfx::current_problem(root), "current problem initially absent");
+    check(!cfx::current_problem(root), "current problem initially absent");
 
     const auto first = cfx::Problem::parse("2227A", root);
     cfx::remember_current_problem(first, root);
     const fs::path current = cfx::state_root(root) / "current-problem";
-    require(read(current) == "2227A\n",
+    check(read(current) == "2227A\n",
             "current problem stored as a small canonical record");
-    require(cfx::current_problem(root)->id() == "2227A", "current problem restored");
+    check(cfx::current_problem(root)->id() == "2227A", "current problem restored");
 
     const auto second = cfx::Problem::parse("71A", root);
     cfx::remember_current_problem(second, root);
-    require(cfx::current_problem(root)->id() == "71A", "current problem replaced");
+    check(cfx::current_problem(root)->id() == "71A", "current problem replaced");
 
     fs::create_directories(root / ".build");
     write(root / ".build" / "disposable", "cache\n");
     fs::remove_all(root / ".build");
-    require(cfx::current_problem(root)->id() == "71A", "clean preserves current problem");
+    check(cfx::current_problem(root)->id() == "71A", "clean preserves current problem");
 
     write(current, "not a problem\n");
     require_workspace_error([&] { static_cast<void>(cfx::current_problem(root)); },
@@ -316,16 +311,16 @@ void test_nested_and_repeated_bundling() {
     write(root / "include" / "cp" / "shared", "#pragma once\nconstexpr int shared = 3;\n");
 
     const auto output = cfx::bundle(root / "main.cpp", root);
-    require(output.find("#include <vector>") != std::string::npos, "system include preserved");
-    require(output.find("constexpr int nested = 1;") != std::string::npos,
+    check(output.find("#include <vector>") != std::string::npos, "system include preserved");
+    check(output.find("constexpr int nested = 1;") != std::string::npos,
             "nested include expanded");
-    require(output.find("constexpr int sibling = 2;") != std::string::npos,
+    check(output.find("constexpr int sibling = 2;") != std::string::npos,
             "sibling resolves relative to its own caller");
     const auto shared = output.find("constexpr int shared = 3;");
-    require(shared != std::string::npos, "shared include expanded");
-    require(output.find("constexpr int shared = 3;", shared + 1) == std::string::npos,
+    check(shared != std::string::npos, "shared include expanded");
+    check(output.find("constexpr int shared = 3;", shared + 1) == std::string::npos,
             "repeated include suppressed");
-    require(output.find("#pragma once") == std::string::npos, "pragma once removed");
+    check(output.find("#pragma once") == std::string::npos, "pragma once removed");
 }
 
 void test_include_root_and_errors() {
@@ -333,7 +328,7 @@ void test_include_root_and_errors() {
     const auto& root = temporary.path();
     write(root / "include" / "cp" / "value", "#pragma once\nconstexpr int value = 4;\n");
     write(root / "source.cpp", "#include <cp/value>\nint answer = value;\n");
-    require(cfx::bundle("source.cpp", root).find("constexpr int value = 4;") != std::string::npos,
+    check(cfx::bundle("source.cpp", root).find("constexpr int value = 4;") != std::string::npos,
             "workspace include root");
 
     write(root / "missing.cpp", "#include \"not-there.hpp\"\n");
@@ -349,7 +344,7 @@ void test_include_root_and_errors() {
 } // namespace
 
 int main() {
-    try {
+    return tst::run("core tests", [] {
         test_problem_parsing();
         test_problem_paths_and_inference();
         test_workspace_creation_is_idempotent();
@@ -359,9 +354,5 @@ int main() {
         test_current_problem_record();
         test_nested_and_repeated_bundling();
         test_include_root_and_errors();
-    } catch (const std::exception& error) {
-        std::cerr << "core_tests: " << error.what() << '\n';
-        return 1;
-    }
-    std::cout << "core_tests: all tests passed\n";
+    });
 }

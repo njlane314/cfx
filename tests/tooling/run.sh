@@ -38,6 +38,7 @@ common_flags=(
     -Werror
     -pthread
     "-I$repo_root/src"
+    "-I$repo_root/tests/vendor/tst"
 )
 
 "${compiler_command[@]}" \

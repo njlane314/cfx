@@ -1,4 +1,5 @@
 #include "cfx/cfx.hpp"
+#include <tst.hpp>
 
 #include <chrono>
 #include <cerrno>
@@ -7,7 +8,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -20,6 +20,7 @@
 namespace {
 
 namespace fs = std::filesystem;
+using tst::check;
 
 class TemporaryDirectory {
   public:
@@ -42,8 +43,6 @@ class TemporaryDirectory {
   private:
     fs::path path_;
 };
-
-void check(bool condition, const std::string& message);
 
 class SubmissionApiServer {
   public:
@@ -131,21 +130,6 @@ std::string read(const fs::path& path) {
     };
 }
 
-void check(bool condition, const std::string& message) {
-    if (!condition) {
-        throw std::runtime_error(message);
-    }
-}
-
-template <class Action> void check_throws(Action action, const std::string& message) {
-    try {
-        action();
-    } catch (const std::exception&) {
-        return;
-    }
-    throw std::runtime_error(message);
-}
-
 void test_json_and_codeforces() {
     const cfx::Json value =
         cfx::parse_json(R"({"text":"line\nnext","values":[true,null,2.5]})");
@@ -173,7 +157,7 @@ void test_codeforces_poll_interval() {
         "99993", "C", "panicsort", "123456789", started + std::chrono::seconds(1),
         std::chrono::milliseconds(25));
     const auto elapsed = std::chrono::steady_clock::now() - started;
-    check_throws(
+    tst::throws(
         [] {
             (void)cfx::poll_submission_status(
                 "99993", "C", "panicsort", "123456789",
@@ -306,7 +290,7 @@ void test_process_and_normalization(const fs::path& root, const fs::path& execut
     const auto detached_elapsed = std::chrono::steady_clock::now() - detached_started;
     check(detached_elapsed < std::chrono::milliseconds(500),
           "detached process returns without waiting for completion");
-    check_throws(
+    tst::throws(
         [] { cfx::launch_detached_process({"/definitely/missing/cfx-command"}); },
         "detached process reports exec failure");
 }
@@ -457,7 +441,7 @@ void test_problem_limits_and_verdicts(const fs::path& root) {
           "missing metadata uses the default time limit");
     write(problem.directory() / "problem.json",
           "{\"id\":\"89A\",\"timeLimitMs\":0,\"memoryLimitMb\":256}\n");
-    check_throws([&] { (void)cfx::load_problem_limits(problem); },
+    tst::throws([&] { (void)cfx::load_problem_limits(problem); },
                  "invalid problem limits are rejected");
 }
 
@@ -495,16 +479,16 @@ void test_submission_preparation(const fs::path& root) {
           "submission artifact directory contains hash");
 
     write(problem.samples_path() / "01.out", "8\n");
-    check_throws([&] { (void)cfx::prepare_submission(root, problem); },
+    tst::throws([&] { (void)cfx::prepare_submission(root, problem); },
                  "ordinary submission rejects a textual mismatch");
     write(problem.samples_path() / "01.out", "7\n");
 
     const cfx::Problem untested("88", "B", root);
     write(untested.solution_path(), "int main() {}\n");
-    check_throws([&] { (void)cfx::prepare_submission(root, untested); },
+    tst::throws([&] { (void)cfx::prepare_submission(root, untested); },
                  "submission requires at least one complete test pair");
     write(untested.samples_path() / "01.in", "\n");
-    check_throws([&] { (void)cfx::prepare_submission(root, untested); },
+    tst::throws([&] { (void)cfx::prepare_submission(root, untested); },
                  "submission rejects an input-only test");
 
     const cfx::Problem slow("88", "C", root);
@@ -513,26 +497,26 @@ void test_submission_preparation(const fs::path& root) {
     write(slow.samples_path() / "01.out", "\n");
     write(slow.directory() / "problem.json",
           "{\"id\":\"88C\",\"timeLimitMs\":20,\"memoryLimitMb\":256}\n");
-    check_throws([&] { (void)cfx::prepare_submission(root, slow); },
+    tst::throws([&] { (void)cfx::prepare_submission(root, slow); },
                  "submission rejects a metadata-driven time-limit failure");
 }
 
 void test_browser_page_validation() {
     cfx::BrowserBridgeOptions options;
     options.extension_id = "abcdefghijklmnopabcdefghijklmnop";
-    check_throws(
+    tst::throws(
         [&] {
             (void)cfx::fetch_problem_in_browser("https://example.com/contest/71/problem/A",
                                                 options);
         },
         "browser bridge must reject a foreign fetch page");
-    check_throws(
+    tst::throws(
         [&] {
             (void)cfx::fetch_problem_in_browser(
                 "https://codeforces.com.evil.example/contest/71/problem/A", options);
         },
         "browser bridge must reject an origin-prefix lookalike");
-    check_throws(
+    tst::throws(
         [&] {
             (void)cfx::submit_in_browser(cfx::BrowserSubmitRequest{
                 "https://codeforces.com/contest/72/submit",
@@ -699,7 +683,7 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
-    try {
+    return tst::run("tool tests", [&] {
         TemporaryDirectory temporary;
         test_json_and_codeforces();
         test_codeforces_poll_interval();
@@ -711,10 +695,5 @@ int main(int argc, char** argv) {
         test_submission_preparation(temporary.path() / "submission");
         test_browser_page_validation();
         test_browser_submission_states();
-        std::cout << "tool integration tests passed\n";
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "tool test failed: " << error.what() << '\n';
-        return 1;
-    }
+    });
 }
