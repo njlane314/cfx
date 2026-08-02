@@ -378,12 +378,21 @@ CodeforcesSubmission poll_submission_status(
     throw std::runtime_error(last_status);
 }
 
-std::pair<std::vector<ProblemSuggestion>, int>
-pick_problems(const std::filesystem::path& root, int rating, std::size_t count,
-              const std::string& handle, const std::vector<std::string>& tags) {
+ProblemSuggestion pick_problem(const std::filesystem::path& root, const std::string& handle) {
+    const Json users = parse_api_response(
+        api_get(api_base() + "/user.info?handles=" + query_value(handle), 30));
+    if (!users.is_array() || users.array().size() != 1) {
+        throw std::runtime_error("Codeforces API returned invalid user data");
+    }
+    const Json& user = users.array().front();
+    const Json* current_rating = user.find("rating");
+    if (current_rating == nullptr) throw std::runtime_error(handle + " has no Codeforces rating");
+    const std::uint64_t rating = nonnegative_integer(*current_rating, "user rating");
+    const std::uint64_t target = std::max<std::uint64_t>(800, ((rating + 199) / 100) * 100);
+
     const Json catalogue = problem_catalogue(root);
     const Json submissions = parse_api_response(
-        api_get(api_base() + "/user.status?handle=" + query_value(handle), 30));
+        api_get(api_base() + "/user.status?handle=" + query_value(user.at("handle").string()), 30));
     if (!submissions.is_array()) {
         throw std::runtime_error("Codeforces API returned invalid submission data");
     }
@@ -401,10 +410,8 @@ pick_problems(const std::filesystem::path& root, int rating, std::size_t count,
         }
     }
 
-    std::vector<std::string> wanted = tags;
-    for (std::string& tag : wanted) tag = lower(std::move(tag));
-
     std::vector<ProblemSuggestion> candidates;
+    std::uint64_t rung = 0;
     for (const Json& value : catalogue.at("problems").array()) {
         const Json* contest = value.find("contestId");
         const Json* problem_rating = value.find("rating");
@@ -412,41 +419,27 @@ pick_problems(const std::filesystem::path& root, int rating, std::size_t count,
             value.at("type").string() != "PROGRAMMING") {
             continue;
         }
-        const int difficulty = static_cast<int>(nonnegative_integer(*problem_rating, "rating"));
-        if (std::abs(difficulty - rating) > 300) continue;
+        const std::uint64_t difficulty = nonnegative_integer(*problem_rating, "rating");
+        if (difficulty < target || (rung != 0 && difficulty > rung)) continue;
         const std::string& index = value.at("index").string();
         if (index.empty() || index.front() < 'A' || index.front() > 'Z' ||
             index.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != std::string::npos) continue;
 
-        std::vector<std::string> listed_tags;
-        for (const Json& tag : value.at("tags").array()) listed_tags.push_back(tag.string());
-        if (!std::all_of(wanted.begin(), wanted.end(), [&](const std::string& tag) {
-                return std::find(listed_tags.begin(), listed_tags.end(), tag) != listed_tags.end();
-            })) continue;
-
         Problem problem(std::to_string(nonnegative_integer(*contest, "contest ID")),
                         index, root);
         if (solved.contains(problem.id()) || std::filesystem::exists(problem.directory())) continue;
-        candidates.push_back(
-            {std::move(problem), value.at("name").string(), difficulty, std::move(listed_tags)});
+        if (rung == 0 || difficulty < rung) {
+            rung = difficulty;
+            candidates.clear();
+        }
+        candidates.push_back({std::move(problem), value.at("name").string(), difficulty});
     }
 
     if (candidates.empty()) {
-        throw std::runtime_error("no unsolved problems match within 300 rating points");
+        throw std::runtime_error("no eligible Codeforces ladder problem is available");
     }
-    int radius = 100;
-    while (radius < 300 && std::none_of(candidates.begin(), candidates.end(), [&](const auto& p) {
-               return std::abs(p.rating - rating) <= radius;
-           })) {
-        radius += 100;
-    }
-    std::erase_if(candidates,
-                  [&](const auto& problem) { return std::abs(problem.rating - rating) > radius; });
     std::shuffle(candidates.begin(), candidates.end(), std::mt19937{std::random_device{}()});
-    if (candidates.size() > count) {
-        candidates.erase(candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end());
-    }
-    return {std::move(candidates), radius};
+    return std::move(candidates.front());
 }
 
 std::string problem_url(const Problem& problem) {

@@ -249,8 +249,7 @@ struct CodeforcesSubmission {
 struct ProblemSuggestion {
     Problem problem;
     std::string name;
-    int rating;
-    std::vector<std::string> tags;
+    std::uint64_t rating;
 };
 
 CodeforcesSubmission poll_submission_status(
@@ -258,9 +257,7 @@ CodeforcesSubmission poll_submission_status(
     const std::string& handle, const std::string& submission_id,
     const std::chrono::steady_clock::time_point& deadline,
     std::chrono::milliseconds interval = std::chrono::milliseconds(2100));
-std::pair<std::vector<ProblemSuggestion>, int>
-pick_problems(const std::filesystem::path& root, int rating, std::size_t count,
-              const std::string& handle, const std::vector<std::string>& tags);
+ProblemSuggestion pick_problem(const std::filesystem::path& root, const std::string& handle);
 std::string problem_url(const Problem& problem);
 std::string submission_url(const Problem& problem);
 

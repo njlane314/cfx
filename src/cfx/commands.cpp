@@ -1,6 +1,5 @@
 #include "cfx.hpp"
 
-#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cmath>
@@ -66,13 +65,13 @@ fs::path select_root(std::vector<std::string>& values) {
 
 const char* kHelp = R"(usage:
   cfx PROBLEM
-  cfx pick --rating R [OPTIONS]
+  cfx pick [HANDLE]
   cfx submit
 
 A small C++20 Codeforces workbench.
 
 daily:
-  cfx pick --rating 1300  suggest an unsolved problem
+  cfx pick your_handle  suggest the next ladder problem
   cfx 71A             fetch samples and open solution.cpp
   cfx submit          test, checked-build, and submit through the browser
 
@@ -85,11 +84,11 @@ codeforces/<contest>/<index>/.
 )";
 
 const std::map<std::string, std::string, std::less<>> kCommandHelp{
-    {"pick", R"(usage: cfx pick --rating R [options]
+    {"pick", R"(usage: cfx pick [HANDLE]
 
-Suggest an unsolved problem near rating R without fetching its statement.
-Set CFX_HANDLE or pass --handle HANDLE. Options: --count N, repeatable
---tag TAG filters, --show-tags, and --quiet (canonical IDs only).
+Look up HANDLE's current rating and suggest one unsolved, unarchived problem
+from the first available rung at least 100 points higher, without fetching it.
+An explicit HANDLE is remembered for later picks.
 )"},
     {"test", R"(usage: cfx test [options] [PROBLEM]
 
@@ -137,18 +136,6 @@ std::uint64_t mebibytes(const std::string& value, const std::string& name) {
         throw std::runtime_error(name + " is too small");
     }
     return rounded;
-}
-
-std::size_t bounded_integer(const std::string& value, const std::string& name,
-                            std::size_t minimum, std::size_t maximum) {
-    std::size_t result = 0;
-    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
-    if (error != std::errc() || end != value.data() + value.size() || result < minimum ||
-        result > maximum) {
-        throw std::runtime_error(name + " must be an integer from " + std::to_string(minimum) +
-                                 " to " + std::to_string(maximum));
-    }
-    return result;
 }
 
 Problem resolve_problem(const std::vector<std::string>& values, const fs::path& root) {
@@ -290,63 +277,35 @@ int command_test(Arguments arguments, const fs::path& root) {
 }
 
 int command_pick(Arguments arguments, const fs::path& root) {
-    int rating = 0;
-    std::size_t count = 1;
-    std::vector<std::string> tags;
-    const char* configured = std::getenv("CFX_HANDLE");
-    std::string handle = configured == nullptr ? "" : configured;
-    bool quiet = false;
-    bool show_tags = false;
-    while (!arguments.empty()) {
-        const std::string argument = arguments.take();
-        if (argument == "--help" || argument == "-h") {
-            show_command_help("pick");
-            return 0;
-        }
-        if (argument == "--rating") {
-            rating = static_cast<int>(bounded_integer(arguments.take(), "--rating", 800, 3500));
-        } else if (argument == "--count") {
-            count = bounded_integer(arguments.take(), "--count", 1, 100);
-        } else if (argument == "--tag") {
-            tags.push_back(arguments.take());
-        } else if (argument == "--handle") {
-            handle = arguments.take();
-        } else if (argument == "--quiet" || argument == "-q") {
-            quiet = true;
-        } else if (argument == "--show-tags") {
-            show_tags = true;
-        } else {
-            throw std::runtime_error("pick: unknown option " + argument);
-        }
+    const bool provided = !arguments.empty();
+    std::string handle = provided ? arguments.take() : "";
+    if (handle == "--help" || handle == "-h") {
+        show_command_help("pick");
+        return 0;
     }
-    if (rating == 0) throw std::runtime_error("pick: --rating is required");
-    if (handle.empty()) throw std::runtime_error("pick: set CFX_HANDLE or pass --handle");
+    if (!arguments.empty()) throw std::runtime_error("pick accepts one Codeforces handle");
+    const fs::path saved = cfx::state_root(root) / "handle";
+    if (!provided) {
+        if (!fs::is_regular_file(saved)) {
+            throw std::runtime_error("pick: pass a Codeforces handle the first time");
+        }
+        handle = cfx::read_text(saved);
+        if (handle.empty() || handle.size() >= 65 || handle.back() != '\n' ||
+            handle.find_first_of("\r\n") != handle.size() - 1) {
+            throw std::runtime_error("invalid saved handle; run cfx pick HANDLE");
+        }
+        handle.pop_back();
+    }
 
-    const auto [suggestions, radius] = cfx::pick_problems(root, rating, count, handle, tags);
-    if (radius > 100 && !quiet) {
-        std::cout << "No eligible problems within ±" << radius - 100 << "; widened to ±" << radius
-                  << ".\n";
+    const cfx::ProblemSuggestion suggestion = cfx::pick_problem(root, handle);
+    if (provided) {
+        fs::create_directories(saved.parent_path());
+        cfx::write_atomic(saved, handle + '\n');
     }
-    for (const cfx::ProblemSuggestion& suggestion : suggestions) {
-        if (quiet) {
-            std::cout << suggestion.problem.id() << '\n';
-            continue;
-        }
-        std::cout << suggestion.problem.id() << " — " << suggestion.name << " ["
-                  << suggestion.rating << ']';
-        if (show_tags) {
-            std::cout << " (";
-            for (std::size_t index = 0; index < suggestion.tags.size(); ++index) {
-                if (index != 0) std::cout << ", ";
-                std::cout << suggestion.tags[index];
-            }
-            std::cout << ')';
-        }
-        std::cout << '\n' << cfx::problem_url(suggestion.problem) << '\n';
-    }
-    if (suggestions.size() == 1 && !quiet) {
-        std::cout << "Start with: cfx " << suggestions.front().problem.id() << '\n';
-    }
+    std::cout << suggestion.problem.id() << " — " << suggestion.name << " ["
+              << suggestion.rating << "]\n"
+              << cfx::problem_url(suggestion.problem) << '\n'
+              << "Start with: cfx " << suggestion.problem.id() << '\n';
     return 0;
 }
 

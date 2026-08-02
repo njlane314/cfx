@@ -66,18 +66,17 @@ submission page. Use `cfx submit --manual` to request that path directly.
 From the solution archive:
 
 ```sh
-export CFX_HANDLE=your_handle
-cfx pick --rating 1300
+cfx pick your_handle
 # fetch the suggested ID, for example:
 cfx 71A
 # edit solution.cpp
 cfx submit
 ```
 
-`cfx pick` suggests one unsolved, unarchived problem within 100 rating points,
-widening to 200 and then 300 only when necessary. Repeat `--tag TAG` to filter,
-use `--count 5` for choices, or `--quiet` for IDs only. Tags remain hidden
-unless `--show-tags` is passed. Picking never creates or opens the selected
+`cfx pick [HANDLE]` looks up your current rating and randomly suggests one
+unsolved, unarchived problem from the first available 100-point rung at least
+100 points higher. An explicit handle is remembered for this archive, so later
+`cfx pick` needs no argument. Picking never creates or opens the selected
 problem; run `cfx ID` explicitly when ready.
 
 `cfx 71A` fetches the problem and samples, creates `codeforces/71/A/`, opens
@@ -106,9 +105,9 @@ solutions/
 ```
 
 Only durable, authored files belong here. Fetched samples, builds, run output,
-and prepared submissions remain external. Empty optional directories
-need no placeholder files. A tracked `.cfx/solution.cpp` overrides the packaged
-starter.
+the remembered handle, and prepared submissions remain external. Empty optional
+directories need no placeholder files. A tracked `.cfx/solution.cpp` overrides
+the packaged starter.
 
 ## LIBRARIES
 

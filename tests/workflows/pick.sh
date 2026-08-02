@@ -19,35 +19,25 @@ git -C "$archive" commit -q -m 'Initialise fixture archive'
 
 environment=(
     "CFX_API_BASE=file://$fixtures"
-    "CFX_HANDLE=alice"
     "CFX_STATE_ROOT=$state"
     "EDITOR=false"
     "CFX_BROWSER=false"
 )
 
-output=$(env "${environment[@]}" "$repo_root/cfx" --root "$archive" \
-    pick --rating 1200 --tag dp)
-grep -Fq 'No eligible problems within ±200; widened to ±300.' <<<"$output"
-grep -Fq '91004D — Far Match [1500]' <<<"$output"
-grep -Fq 'https://codeforces.com/contest/91004/problem/D' <<<"$output"
-grep -Fq 'Start with: cfx 91004D' <<<"$output"
-! grep -Fq 'secret spoiler' <<<"$output"
+! missing=$(env "${environment[@]}" CFX_STATE_ROOT="$work/empty-state" \
+    "$repo_root/cfx" --root "$archive" pick 2>&1)
+grep -Fq 'pass a Codeforces handle the first time' <<<"$missing"
+
+output=$(env "${environment[@]}" "$repo_root/cfx" --root "$archive" pick alice)
+[[ $output == $'91004D — Ladder Step [1600]\nhttps://codeforces.com/contest/91004/problem/D\nStart with: cfx 91004D' ]]
+[[ $(<"$state/handle") == alice && $(wc -c <"$state/handle") -eq 6 ]]
+remembered=$(env "${environment[@]}" "$repo_root/cfx" --root "$archive" pick)
+[[ $remembered == "$output" ]]
 test ! -e "$archive/codeforces/91004/D"
 test -z "$(git -C "$archive" status --porcelain)"
 
-shown=$(env "${environment[@]}" "$repo_root/cfx" --root "$archive" \
-    pick --rating 1200 --tag dp --show-tags)
-grep -Fq '(dp, secret spoiler)' <<<"$shown"
-
-widened_quiet=$(env "${environment[@]}" "$repo_root/cfx" --root "$archive" \
-    pick --rating 1200 --tag dp --quiet 2>&1)
-[[ $widened_quiet == 91004D ]]
-
-quiet=$(env "${environment[@]}" "$repo_root/cfx" --root "$archive" \
-    pick --handle alice --rating 1300 --tag choice --count 5 --quiet)
-[[ $(sort <<<"$quiet") == $'91101A\n91102B\n91103C\n91104D\n91105E' ]]
-
 help=$($repo_root/cfx help pick)
-for option in --rating --count --tag --show-tags --quiet --handle; do
-    grep -Fq -- "$option" <<<"$help"
+grep -Fq 'usage: cfx pick [HANDLE]' <<<"$help"
+for removed in --rating --count --tag --show-tags --quiet --handle CFX_HANDLE; do
+    ! grep -Fq -- "$removed" <<<"$help"
 done
