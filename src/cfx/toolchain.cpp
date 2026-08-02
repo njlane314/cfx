@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
