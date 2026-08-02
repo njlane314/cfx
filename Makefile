@@ -5,10 +5,10 @@ MAN1DIR ?= $(MANDIR)/man1
 
 CFX := ./cfx
 CFX_PATH := $(abspath $(CFX))
-MANPAGE := release/cfx.1
+MANPAGE := man/cfx.1
 TEST_RUNNER := tests/run.sh
 TEST_SCRIPTS := $(shell find tests -type f -name '*.sh' -print)
-RELEASE_SCRIPTS := $(shell find release -type f -name '*.sh' -print)
+TOOL_SCRIPTS := $(shell find tools -type f -name '*.sh' -print)
 BROWSER_SCRIPTS := $(shell find src/browser -type f -name '*.sh' -print)
 
 ifeq ($(origin CXX),default)
@@ -85,7 +85,7 @@ test: build
 	bash $(TEST_RUNNER)
 
 lint:
-	bash -n $(CFX) $(TEST_SCRIPTS) $(RELEASE_SCRIPTS) $(BROWSER_SCRIPTS)
+	bash -n $(CFX) $(TEST_SCRIPTS) $(TOOL_SCRIPTS) $(BROWSER_SCRIPTS)
 	@if command -v node >/dev/null 2>&1; then \
 		for script in src/browser/*.js; do node --check "$$script"; done; \
 		node -e 'JSON.parse(require("node:fs").readFileSync("src/browser/manifest.json", "utf8"))'; \

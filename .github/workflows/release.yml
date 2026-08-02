@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           make build
-          archive=$(release/package.sh "${GITHUB_REF_NAME#v}" \
+          archive=$(tools/package.sh "${GITHUB_REF_NAME#v}" \
             "${{ matrix.platform }}" "${{ matrix.architecture }}")
           package=${archive##*/}
           package=${package%.tar.gz}

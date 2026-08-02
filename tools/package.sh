@@ -21,7 +21,7 @@ binary=${4:-$root/.build/tools/cfx}
 output_dir=${5:-$root/.build/release}
 
 [[ -x $binary ]] || { echo "release package: not executable: $binary" >&2; exit 1; }
-for path in LICENSE release/cfx.1 solution.cpp src/browser/extension-id; do
+for path in LICENSE man/cfx.1 solution.cpp src/browser/extension-id; do
     [[ -e $root/$path ]] || { echo "release package: missing $path" >&2; exit 1; }
 done
 
@@ -34,7 +34,7 @@ rm -rf "$stage"
 mkdir -p "$stage/bin" "$stage/libexec" "$stage/share/cfx" "$stage/share/man/man1"
 install -m 0755 "$script_dir/cfx-wrapper.sh" "$stage/bin/cfx"
 install -m 0755 "$binary" "$stage/libexec/cfx"
-install -m 0644 "$root/release/cfx.1" "$stage/share/man/man1/cfx.1"
+install -m 0644 "$root/man/cfx.1" "$stage/share/man/man1/cfx.1"
 install -m 0644 "$root/solution.cpp" "$stage/share/cfx/solution.cpp"
 install -m 0644 "$root/src/browser/extension-id" "$stage/share/cfx/extension-id"
 install -m 0644 "$root/LICENSE" "$stage/LICENSE"
